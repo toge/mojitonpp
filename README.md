@@ -1,6 +1,6 @@
 # mojitonpp (連番文字列検出ライブラリ)
 
-文字列群の中から、**90%以上(変更可能)を占める支配的な 1 系列**の連番パターンを検出し、共通接頭辞（ベース名）と可変数値部分を分離してソートするための C++26 ライブラリ、およびそれを利用した連番ファイル検出 CLI ツールです。
+文字列群の中から**90%以上(変更可能)を占める支配的な 1 系列**の連番パターンを検出し、共通接頭辞（ベース名）と可変数値部分を分離してソートするための C++26 ライブラリ、およびそれを利用した連番ファイル検出 CLI ツールです。
 
 ## 特徴
 
@@ -56,9 +56,10 @@ ctest --test-dir build --output-on-failure
 `mojitonpp::SequenceDetector` を使用して、任意の文字列集合からパターンを検出できます。
 
 ```cpp
-#include "mojitonpp.hpp"
 #include <vector>
 #include <string>
+
+#include "mojitonpp.hpp"
 
 int main() {
   std::vector<std::string> inputs = {"img_01.png", "img_02.png", "other.txt"};

@@ -1,11 +1,6 @@
 #include "mojitonpp.hpp"
 
 #include "glaze/glaze.hpp"
-#include "quill/Backend.h"
-#include "quill/Frontend.h"
-#include "quill/LogMacros.h"
-#include "quill/Logger.h"
-#include "quill/sinks/ConsoleSink.h"
 
 #include <cstdlib>
 #include <filesystem>
@@ -43,11 +38,12 @@ struct json_report {
 };
 
 /**
- * @brief コマンドライン引数を解析します。
- * @param args 引数列です。
- * @return 解析済みオプションです。失敗時は `std::nullopt` を返します。
+ * @brief コマンドライン引数を解析する
+ * @param args 引数列
+ * @return 解析済みオプション 失敗時は `std::nullopt` を返す
  */
-[[nodiscard]] auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> {
+[[nodiscard]]
+auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> {
   auto options = cli_options{};
 
   for (auto index = std::size_t{1U}; index < args.size(); ++index) {
@@ -91,12 +87,13 @@ struct json_report {
 }
 
 /**
- * @brief 対象ディレクトリから検出候補ファイルを収集します。
- * @param directory 対象ディレクトリです。
- * @param logger Quill ロガーです。
- * @return 収集した通常ファイル名一覧です。
+ * @brief 対象ディレクトリから検出候補ファイルを収集する
+ * @param directory 対象ディレクトリ
+ * @param verbose 詳細な情報を出力するかどうか
+ * @return 収集した通常ファイル名一覧
  */
-[[nodiscard]] auto collectCandidateFilenames(std::filesystem::path const& directory, quill::Logger* const logger) -> std::vector<std::string> {
+[[nodiscard]]
+auto collectCandidateFilenames(std::filesystem::path const& directory, bool verbose) -> std::vector<std::string> {
   auto filenames = std::vector<std::string>{};
 
   for (auto const& entry : std::filesystem::directory_iterator{directory}) {
@@ -106,7 +103,9 @@ struct json_report {
 
     auto const filename = entry.path().filename().string();
     if (mojitonpp::isMetadata(filename)) {
-      LOG_DEBUG(logger, "Skip metadata file {}", filename);
+      if (verbose) {
+        std::cout << "Skip metadata file " << filename << '\n';
+      }
       continue;
     }
     filenames.emplace_back(filename);
@@ -116,12 +115,13 @@ struct json_report {
 }
 
 /**
- * @brief JSON 出力用の構造体へ変換します。
- * @param directory 対象ディレクトリです。
- * @param result 検出結果です。
- * @return JSON 直列化用のレポートです。
+ * @brief JSON 出力用の構造体へ変換する
+ * @param directory 対象ディレクトリ
+ * @param result 検出結果
+ * @return JSON 直列化用のレポート
  */
-[[nodiscard]] auto makeJsonReport(std::filesystem::path const& directory, mojitonpp::detection_result const& result) -> json_report {
+[[nodiscard]]
+auto makeJsonReport(std::filesystem::path const& directory, mojitonpp::detection_result const& result) -> json_report {
   auto files = std::vector<json_file_entry>{};
   files.reserve(result.items.size());
   for (auto const& item : result.items) {
@@ -142,11 +142,11 @@ struct json_report {
 }
 
 /**
- * @brief 人間向けの検出結果を表示します。
- * @param directory 対象ディレクトリです。
- * @param result 検出結果です。
+ * @brief 人間向けの検出結果を表示する
+ * @param directory 対象ディレクトリ
+ * @param result 検出結果
  */
-auto printHumanReadable(std::filesystem::path const& directory, mojitonpp::detection_result const& result) -> void {
+auto printHumanReadable(std::filesystem::path const& directory, mojitonpp::detection_result const& result) {
   auto const base_name = result.base_name.empty() ? std::string{"(空文字列)"} : result.base_name;
 
   std::print("対象ディレクトリ: {}\n", std::filesystem::absolute(directory).string());
@@ -182,18 +182,6 @@ auto main(int argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  quill::Backend::start();
-  auto* logger = quill::Frontend::create_or_get_logger(
-    "sequence_detector",
-    quill::Frontend::create_or_get_sink<quill::ConsoleSink>(
-      "sequence_detector_sink",
-      [] {
-        auto config = quill::ConsoleSinkConfig{};
-        config.set_stream("stderr");
-        return config;
-      }()));
-  logger->set_log_level(options->verbose ? quill::LogLevel::Debug : quill::LogLevel::Info);
-
   if (!std::filesystem::exists(options->directory)) {
     std::cerr << "指定ディレクトリが存在しません: " << options->directory.string() << '\n';
     return EXIT_FAILURE;
@@ -203,8 +191,11 @@ auto main(int argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  auto const filenames = collectCandidateFilenames(options->directory, logger);
-  LOG_INFO(logger, "Collected {} candidate files from {}", filenames.size(), std::filesystem::absolute(options->directory).string());
+  auto const filenames = collectCandidateFilenames(options->directory, options->verbose);
+
+  if (options->verbose) {
+    std::cout << "Collected " << filenames.size() << " candidate files from " << std::filesystem::absolute(options->directory).string() << '\n';
+  }
 
   auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
     .threshold            = options->threshold,
@@ -216,13 +207,14 @@ auto main(int argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  LOG_INFO(logger, "Detected base name '{}' with {} files", result->base_name, result->matched_count);
+  if (options->verbose) {
+    std::cout << "Detected base name '" << result->base_name << "' with " << result->matched_count << " files\n";
+  }
 
   if (options->json_output) {
-    auto       report = makeJsonReport(options->directory, *result);
-    auto       buffer = std::string{};
-    auto const ec     = glz::write<glz::opts{.prettify = true}>(report, buffer);
-    if (ec) {
+    auto report = makeJsonReport(options->directory, *result);
+    auto buffer = std::string{};
+    if (auto const ec = glz::write<glz::opts{.prettify = true}>(report, buffer); ec) {
       std::cerr << "JSON 出力の生成に失敗しました。\n";
       return EXIT_FAILURE;
     }

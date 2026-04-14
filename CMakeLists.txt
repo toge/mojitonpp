@@ -66,7 +66,6 @@ option(BUILD_TOOL "Build tool" ON)
 find_package(Marisa CONFIG REQUIRED)
 if(BUILD_TOOL)
     find_package(glaze CONFIG REQUIRED)
-    find_package(quill CONFIG REQUIRED)
 endif()
 
 include(GNUInstallDirs)
@@ -81,7 +80,7 @@ target_compile_features(mojitonpp INTERFACE ${STD_CPP})
 
 if(BUILD_TOOL)
     add_executable(sequence_detector main.cpp)
-    target_link_libraries(sequence_detector PRIVATE mojitonpp glaze::glaze quill::quill)
+    target_link_libraries(sequence_detector PRIVATE mojitonpp glaze::glaze)
     target_compile_features(sequence_detector PRIVATE ${STD_CPP})
 endif()
 

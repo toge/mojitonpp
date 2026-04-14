@@ -20,37 +20,37 @@
 namespace mojitonpp {
 
 /**
- * @brief 検出された要素の情報です。
+ * @brief 検出された要素の情報
  */
 struct detected_item {
   std::string         value;
   std::vector<double> indices;
 
   /**
-   * @brief インデックス列の大小比較を行います。
-   * @param lhs 左辺です。
-   * @param rhs 右辺です。
-   * @return lhs < rhs であれば true です。
+   * @brief インデックス列の大小比較
+   * @return lhs < rhs であれば true
    */
-  friend auto operator<(detected_item const& lhs, detected_item const& rhs) noexcept -> bool {
+  friend
+  auto operator<(detected_item const& lhs, detected_item const& rhs) noexcept {
     return std::lexicographical_compare(lhs.indices.begin(), lhs.indices.end(), rhs.indices.begin(), rhs.indices.end());
   }
 };
 
 /**
- * @brief 検出の結果を表します。
+ * @brief 検出結果
  */
 struct detection_result {
-  std::string                base_name;
-  std::vector<detected_item> items;
-  std::size_t                eligible_count{};
-  std::size_t                matched_count{};
+  std::string                base_name; // <- 共通となる接頭辞
+  std::vector<detected_item> items;      // <- ベース名に続く数値列を抽出できたファイル一覧（インデックス順にソート済み）
+  std::size_t                eligible_count{}; // <- ベース名を接頭辞に持つファイルの総数
+  std::size_t                matched_count{}; // <- ベース名に続く数値列を抽出できたファイルの数
 
   /**
-   * @brief 検出成功率を返します。
-   * @return 対象要素に対する検出件数の比率です。
+   * @brief 検出成功率を返す
+   * @return 対象要素に対する検出件数の比率
    */
-  [[nodiscard]] auto coverage() const noexcept -> double {
+  [[nodiscard]]
+  auto coverage() const noexcept {
     if (eligible_count == 0U) {
       return 0.0;
     }
@@ -59,34 +59,35 @@ struct detection_result {
 };
 
 /**
- * @brief 文字列として扱える要素を持つ入力範囲を表す Concept です。
+ * @brief 文字列として扱える要素を持つ入力範囲を表す Concept
  */
 template <typename Range>
 concept string_range = std::ranges::input_range<Range> && std::convertible_to<std::ranges::range_value_t<Range>, std::string_view>;
 
 /**
- * @brief 支配的な系列を検出するためのオプションです。
+ * @brief 支配的な系列を検出するためのオプション
  */
 struct DetectorOptions {
-  double threshold{0.9};
-  bool   treat_dot_as_decimal{false};
+  double threshold{0.9}; // <- 系列とみなすための最低限の検出率（0.0～1.0）
+  bool   treat_dot_as_decimal{false}; // <- ドットを小数点として扱うかどうか（例: "v1.2" -> true: [1.2] vs false: [1, 2]）
 };
 
 /**
- * @brief 支配的な系列を検出するクラスです。
+ * @brief 支配的な系列を検出するクラス
  */
 class SequenceDetector {
 public:
   explicit SequenceDetector(DetectorOptions const& opts = {}) : options_(opts) {}
 
   /**
-   * @brief 文字列集合から系列を検出します。
-   * @tparam Range 文字列の入力範囲です。
-   * @param inputs 検出対象文字列群です。
-   * @return 系列が見つかった場合は結果、見つからない場合は `std::nullopt` です。
+   * @brief 文字列集合から系列を検出する
+   * @tparam Range 文字列の入力範囲
+   * @param inputs 検出対象文字列群
+   * @return 系列が見つかった場合は結果、見つからない場合は `std::nullopt`
    */
   template <string_range Range>
-  [[nodiscard]] auto detect(Range const& inputs) const -> std::optional<detection_result> {
+  [[nodiscard]]
+  auto detect(Range const& inputs) const -> std::optional<detection_result> {
     auto buffer = std::vector<std::string>{};
     if constexpr (std::ranges::sized_range<Range>) {
       buffer.reserve(std::ranges::size(inputs));
@@ -101,9 +102,10 @@ public:
     }
 
     auto const snapshot = buildTrie(buffer);
-    auto       result   = detection_result{};
-    result.base_name    = chooseBaseName(snapshot);
-    result.eligible_count = buffer.size();
+    auto       result   = detection_result{
+      .base_name    = chooseBaseName(snapshot),
+      .eligible_count = buffer.size(),
+    };
 
     for (auto const& input : buffer) {
       if (auto const indices = extractIndices(input, result.base_name, options_.treat_dot_as_decimal)) {
@@ -134,20 +136,22 @@ private:
   };
 
   /**
-   * @brief 閾値を満たすために必要な件数を返します。
-   * @param total 総件数です。
-   * @return 必要件数です。
+   * @brief 閾値を満たすために必要な件数を返す
+   * @param total 総件数
+   * @return 必要件数
    */
-  [[nodiscard]] auto coverageThreshold(std::size_t const total) const noexcept -> std::size_t {
+  [[nodiscard]]
+  auto coverageThreshold(std::size_t const total) const noexcept -> std::size_t {
     return static_cast<std::size_t>(std::ceil(static_cast<double>(total) * options_.threshold));
   }
 
   /**
-   * @brief 静的 Trie と辞書順ソート済み名前一覧を構築します。
-   * @param names 文字列一覧です。
-   * @return 構築済み Trie と辞書順一覧です。
+   * @brief 静的 Trie と辞書順ソート済み名前一覧を構築する
+   * @param names 文字列一覧
+   * @return 構築済み Trie と辞書順一覧
    */
-  [[nodiscard]] static auto buildTrie(std::span<std::string const> names) -> trie_snapshot {
+  [[nodiscard]]
+  static auto buildTrie(std::span<std::string const> names) -> trie_snapshot {
     auto snapshot = trie_snapshot{};
     snapshot.names.reserve(names.size());
     for (auto const& name : names) {
@@ -167,22 +171,22 @@ private:
   }
 
   /**
-   * @brief 二つの文字列の最長共通接頭辞を返します。
-   * @param lhs 左辺です。
-   * @param rhs 右辺です。
-   * @return 共通接頭辞です。
+   * @brief 2つの文字列の最長共通接頭辞を返す
+   * @return 共通接頭辞
    */
-  [[nodiscard]] static auto longestCommonPrefix(std::string_view const lhs, std::string_view const rhs) -> std::string {
+  [[nodiscard]]
+  static auto longestCommonPrefix(std::string_view const lhs, std::string_view const rhs) -> std::string {
     auto const mismatch = std::ranges::mismatch(lhs, rhs);
     return std::string{lhs.begin(), mismatch.in1};
   }
 
   /**
-   * @brief 接頭辞末尾の数値要素を除去してベース名へ正規化します。
-   * @param text 接頭辞候補です。
-   * @return ベース名候補です。
+   * @brief 接頭辞末尾の数値要素を除去してベース名へ正規化する
+   * @param text 接頭辞候補
+   * @return ベース名候補
    */
-  [[nodiscard]] auto trimTrailingNumericParts(std::string_view text) const -> std::string {
+  [[nodiscard]]
+  auto trimTrailingNumericParts(std::string_view text) const {
     auto changed = true;
     while (changed) {
       changed = false;
@@ -203,12 +207,13 @@ private:
   }
 
   /**
-   * @brief Trie 上で接頭辞一致件数を数えます。
-   * @param trie 構築済み Trie です。
-   * @param prefix 調べる接頭辞です。
-   * @return 一致件数です。
+   * @brief Trie 上で接頭辞一致件数を数える
+   * @param trie 構築済み Trie
+   * @param prefix 調べる接頭辞
+   * @return 一致件数
    */
-  [[nodiscard]] static auto countPrefixMatches(marisa::Trie const& trie, std::string_view const prefix) -> std::size_t {
+  [[nodiscard]]
+  static auto countPrefixMatches(marisa::Trie const& trie, std::string_view const prefix) {
     auto agent = marisa::Agent{};
     agent.set_query(prefix.data(), prefix.size());
 
@@ -220,11 +225,12 @@ private:
   }
 
   /**
-   * @brief 閾値を満たす最大長のベース名を選びます。
-   * @param snapshot Trie と辞書順文字列一覧です。
-   * @return ベース名です。
+   * @brief 閾値を満たす最大長のベース名を選ぶ
+   * @param snapshot Trie と辞書順文字列一覧
+   * @return ベース名
    */
-  [[nodiscard]] auto chooseBaseName(trie_snapshot const& snapshot) const -> std::string {
+  [[nodiscard]]
+  auto chooseBaseName(trie_snapshot const& snapshot) const -> std::string {
     if (snapshot.names.empty()) {
       return {};
     }
@@ -267,13 +273,15 @@ private:
   }
 
   /**
-   * @brief ベース名直後の数値列を抽出します。
-   * @param input 対象文字列です。
-   * @param base_name ベース名です。
-   * @param treat_dot_as_decimal 小数点として扱うかどうかです。
-   * @return インデックス列を抽出できた場合はその値、できない場合は `std::nullopt` です。
+   * @brief ベース名直後の数値列を抽出する
+   * @param input 対象文字列
+   * @param base_name ベース名
+   * @param treat_dot_as_decimal 小数点として扱うかどうか
+   * @return インデックス列を抽出できた場合はその値、できない場合は `std::nullopt`
+   * 例: input="v1.2.3.png", base_name="v" -> [1, 2, 3] または treat_dot_as_decimal=true の場合は [1.2, 3]
    */
-  [[nodiscard]] static auto extractIndices(std::string_view const input, std::string_view const base_name, bool const treat_dot_as_decimal) -> std::optional<std::vector<double>> {
+  [[nodiscard]]
+  static auto extractIndices(std::string_view const input, std::string_view const base_name, bool const treat_dot_as_decimal) -> std::optional<std::vector<double>> {
     if (!input.starts_with(base_name)) {
       return std::nullopt;
     }
@@ -321,11 +329,12 @@ private:
 };
 
 /**
- * @brief メタデータ（除外対象）かどうかを判定します。
- * @param input 判定対象文字列です。
- * @return メタデータであれば `true`、それ以外は `false` です。
+ * @brief メタデータ（除外対象）かどうかを判定する
+ * @param input 判定対象文字列
+ * @return メタデータであれば `true`
  */
-[[nodiscard]] inline auto isMetadata(std::string_view const input) -> bool {
+[[nodiscard]]
+inline auto isMetadata(std::string_view const input) {
   if (input.empty()) {
     return true;
   }

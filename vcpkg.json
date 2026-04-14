@@ -2,7 +2,6 @@
   "dependencies": [
     "catch2",
     "glaze",
-    "marisa-trie",
-    "quill"
+    "marisa-trie"
   ]
 }
