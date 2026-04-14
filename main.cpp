@@ -34,11 +34,11 @@ struct json_file_entry {
 };
 
 struct json_report {
-  std::string                 directory;
-  std::string                 base_name;
-  std::size_t                 eligible_file_count{};
-  std::size_t                 matched_file_count{};
-  double                      coverage{};
+  std::string                  directory;
+  std::string                  base_name;
+  std::size_t                  eligible_file_count{};
+  std::size_t                  matched_file_count{};
+  double                       coverage{};
   std::vector<json_file_entry> files;
 };
 
@@ -94,25 +94,25 @@ struct json_report {
  * @brief 対象ディレクトリから検出候補ファイルを収集します。
  * @param directory 対象ディレクトリです。
  * @param logger Quill ロガーです。
- * @return 収集した通常ファイル一覧です。
+ * @return 収集した通常ファイル名一覧です。
  */
-[[nodiscard]] auto collectCandidateFiles(std::filesystem::path const& directory, quill::Logger* const logger) -> std::vector<std::filesystem::path> {
-  auto files = std::vector<std::filesystem::path>{};
+[[nodiscard]] auto collectCandidateFilenames(std::filesystem::path const& directory, quill::Logger* const logger) -> std::vector<std::string> {
+  auto filenames = std::vector<std::string>{};
 
   for (auto const& entry : std::filesystem::directory_iterator{directory}) {
     if (!entry.is_regular_file()) {
       continue;
     }
 
-    auto const path = entry.path();
-    if (mojitonpp::isMetadataFile(path)) {
-      LOG_DEBUG(logger, "Skip metadata file {}", path.filename().string());
+    auto const filename = entry.path().filename().string();
+    if (mojitonpp::isMetadata(filename)) {
+      LOG_DEBUG(logger, "Skip metadata file {}", filename);
       continue;
     }
-    files.emplace_back(path);
+    filenames.emplace_back(filename);
   }
 
-  return files;
+  return filenames;
 }
 
 /**
@@ -123,19 +123,19 @@ struct json_report {
  */
 [[nodiscard]] auto makeJsonReport(std::filesystem::path const& directory, mojitonpp::detection_result const& result) -> json_report {
   auto files = std::vector<json_file_entry>{};
-  files.reserve(result.files.size());
-  for (auto const& file : result.files) {
+  files.reserve(result.items.size());
+  for (auto const& item : result.items) {
     files.push_back(json_file_entry{
-      .filename = file.filename,
-      .indices  = file.indices,
+      .filename = item.value,
+      .indices  = item.indices,
     });
   }
 
   return json_report{
     .directory           = std::filesystem::absolute(directory).string(),
     .base_name           = result.base_name,
-    .eligible_file_count = result.eligible_file_count,
-    .matched_file_count  = result.matched_file_count,
+    .eligible_file_count = result.eligible_count,
+    .matched_file_count  = result.matched_count,
     .coverage            = result.coverage(),
     .files               = std::move(files),
   };
@@ -151,17 +151,17 @@ auto printHumanReadable(std::filesystem::path const& directory, mojitonpp::detec
 
   std::print("対象ディレクトリ: {}\n", std::filesystem::absolute(directory).string());
   std::print("ベース名: {}\n", base_name);
-  std::print("検出件数: {}/{} ({:.2f}%)\n", result.matched_file_count, result.eligible_file_count, result.coverage() * 100.0);
+  std::print("検出件数: {}/{} ({:.2f}%)\n", result.matched_count, result.eligible_count, result.coverage() * 100.0);
   std::print("連番ファイル一覧:\n");
-  for (auto const& file : result.files) {
+  for (auto const& item : result.items) {
     auto indices_str = std::string{};
-    for (auto const val : file.indices) {
+    for (auto const val : item.indices) {
       if (!indices_str.empty()) {
         indices_str += ", ";
       }
       indices_str += std::format("{}", val);
     }
-    std::print("[{:>12}]  {}\n", indices_str, file.filename);
+    std::print("[{:>12}]  {}\n", indices_str, item.value);
   }
 }
 
@@ -203,20 +203,20 @@ auto main(int argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  auto const files = collectCandidateFiles(options->directory, logger);
-  LOG_INFO(logger, "Collected {} candidate files from {}", files.size(), std::filesystem::absolute(options->directory).string());
+  auto const filenames = collectCandidateFilenames(options->directory, logger);
+  LOG_INFO(logger, "Collected {} candidate files from {}", filenames.size(), std::filesystem::absolute(options->directory).string());
 
   auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
     .threshold            = options->threshold,
     .treat_dot_as_decimal = options->dot_as_decimal,
   }};
-  auto const result   = detector.detect(files);
+  auto const result   = detector.detect(filenames);
   if (!result) {
     std::cerr << "90%以上を占める連番系列を検出できませんでした。\n";
     return EXIT_FAILURE;
   }
 
-  LOG_INFO(logger, "Detected base name '{}' with {} files", result->base_name, result->matched_file_count);
+  LOG_INFO(logger, "Detected base name '{}' with {} files", result->base_name, result->matched_count);
 
   if (options->json_output) {
     auto       report = makeJsonReport(options->directory, *result);

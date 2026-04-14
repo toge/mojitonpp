@@ -61,13 +61,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(BUILD_TEST "Build tests" ON)
-if(BUILD_TEST)
-    enable_testing()
-endif()
+option(BUILD_TOOL "Build tool" ON)
 
 find_package(Marisa CONFIG REQUIRED)
-find_package(glaze CONFIG REQUIRED)
-find_package(quill CONFIG REQUIRED)
+if(BUILD_TOOL)
+    find_package(glaze CONFIG REQUIRED)
+    find_package(quill CONFIG REQUIRED)
+endif()
 
 include(GNUInstallDirs)
 
@@ -79,15 +79,13 @@ target_include_directories(mojitonpp INTERFACE
 target_link_libraries(mojitonpp INTERFACE Marisa::marisa)
 target_compile_features(mojitonpp INTERFACE ${STD_CPP})
 
-add_executable(sequence_detector main.cpp)
-target_link_libraries(sequence_detector PRIVATE mojitonpp glaze::glaze quill::quill)
-target_compile_features(sequence_detector PRIVATE ${STD_CPP})
+if(BUILD_TOOL)
+    add_executable(sequence_detector main.cpp)
+    target_link_libraries(sequence_detector PRIVATE mojitonpp glaze::glaze quill::quill)
+    target_compile_features(sequence_detector PRIVATE ${STD_CPP})
+endif()
 
 # Installation rules
-install(TARGETS sequence_detector
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-
 install(TARGETS mojitonpp
     EXPORT mojitonppTargets
 )
@@ -102,6 +100,13 @@ install(EXPORT mojitonppTargets
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/mojitonpp
 )
 
+if(BUILD_TOOL)
+    install(TARGETS sequence_detector
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+
 if(BUILD_TEST)
+    enable_testing()
     add_subdirectory(test)
 endif()
