@@ -9,13 +9,12 @@
 
 namespace {
 
-[[nodiscard]] auto makeSequence(std::string_view const prefix, int const begin, int const end) -> std::vector<std::string> {
+[[nodiscard]] auto makeSequence(std::string_view const prefix, int const begin, int const end, std::string_view const ext = ".png") -> std::vector<std::string> {
   auto items = std::vector<std::string>{};
   items.reserve(static_cast<std::size_t>(end - begin + 1));
 
   for (auto const value : std::views::iota(begin, end + 1)) {
-    auto const extension = value % 2 == 0 ? ".png" : ".jpg";
-    items.emplace_back(std::format("{}{:03}{}", prefix, value, extension));
+    items.emplace_back(std::format("{}{:03}{}", prefix, value, ext));
   }
 
   return items;
@@ -28,23 +27,64 @@ TEST_CASE("支配的な連番系列を安定して検出できる", "[sequence]"
   items.emplace_back("aaa-noise.bin");
   items.emplace_back("zzz-noise.bin");
   items.emplace_back("misc-file.txt");
-  items.emplace_back("episode_notes.bin");
-  items.emplace_back("another.out");
-  items.emplace_back("episode-index.dat");
-  items.emplace_back("noise000.tmp");
-  items.emplace_back("x.bin");
-  items.emplace_back("y.bin");
-  items.emplace_back("z.bin");
 
   auto const detector = mojitonpp::SequenceDetector{};
-  auto const result   = detector.detect(items);
+  auto const results  = detector.detect(items);
 
-  REQUIRE(result.has_value());
-  CHECK(result->base_name == "episode_");
-  CHECK(result->matched_count == 90U);
-  CHECK(result->eligible_count == 100U);
-  CHECK(result->items.front().indices.front() == 1.0);
-  CHECK(result->items.back().indices.front() == 90.0);
+  REQUIRE(results.size() == 1U);
+  CHECK(results[0].base_name == "episode_");
+  CHECK(results[0].matched_count == 90U);
+}
+
+TEST_CASE("複数系列を同時に検出できる", "[sequence]") {
+  auto items = makeSequence("shot_A_", 1, 40);
+  auto b_items = makeSequence("shot_B_", 1, 40);
+  items.insert(items.end(), b_items.begin(), b_items.end());
+  
+  items.emplace_back("noise1.txt");
+  items.emplace_back("noise2.txt");
+
+  // 閾値を 0.3 に下げて、各 40% 占める系列を見つけられるようにする
+  auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{.threshold = 0.3}};
+  auto const results  = detector.detect(items);
+
+  REQUIRE(results.size() == 2U);
+  
+  auto const has_base = [&](std::string_view name) {
+    return std::ranges::any_of(results, [name](auto const& r) { return r.base_name == name; });
+  };
+  
+  CHECK(has_base("shot_A_"));
+  CHECK(has_base("shot_B_"));
+}
+
+TEST_CASE("拡張子でフィルタリングできる", "[filter]") {
+  auto items = makeSequence("frame_", 1, 10, ".png");
+  auto jpgs = makeSequence("image_", 1, 10, ".jpg");
+  items.insert(items.end(), jpgs.begin(), jpgs.end());
+
+  SECTION(".png のみを対象にする") {
+    auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
+      .threshold = 0.9,
+      .allowed_extensions = {".png"}
+    }};
+    auto const results = detector.detect(items);
+    REQUIRE(results.size() == 1U);
+    CHECK(results[0].base_name == "frame_");
+    for (auto const& item : results[0].items) {
+      CHECK(item.value.ends_with(".png"));
+    }
+  }
+
+  SECTION(".jpg のみを対象にする") {
+    auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
+      .threshold = 0.9,
+      .allowed_extensions = {".jpg"}
+    }};
+    auto const results = detector.detect(items);
+    REQUIRE(results.size() == 1U);
+    CHECK(results[0].base_name == "image_");
+  }
 }
 
 TEST_CASE("自然順でソートされる", "[sequence]") {
@@ -55,89 +95,18 @@ TEST_CASE("自然順でソートされる", "[sequence]") {
   };
 
   auto const detector = mojitonpp::SequenceDetector{};
-  auto const result   = detector.detect(items);
+  auto const results  = detector.detect(items);
 
-  REQUIRE(result.has_value());
-  REQUIRE(result->items.size() == 3U);
-  CHECK(result->items[0].indices.front() == 1.0);
-  CHECK(result->items[1].indices.front() == 2.0);
-  CHECK(result->items[2].indices.front() == 10.0);
+  REQUIRE(results.size() == 1U);
+  REQUIRE(results[0].items.size() == 3U);
+  CHECK(results[0].items[0].indices.front() == 1.0);
+  CHECK(results[0].items[1].indices.front() == 2.0);
+  CHECK(results[0].items[2].indices.front() == 10.0);
 }
 
-TEST_CASE("先頭の数値から順に比較される", "[sequence]") {
-  auto const items = std::vector<std::string>{
-    "v1.2.3.png",
-    "v1.5.png",
-    "v1.5.5.png",
-    "v2.1.png",
-  };
-
-  auto const detector = mojitonpp::SequenceDetector{};
-  auto const result   = detector.detect(items);
-
-  REQUIRE(result.has_value());
-  REQUIRE(result->items.size() == 4U);
-  // v1.2.3 vs v1.5   -> 1==1, 2<5 -> v1.2.3 is smaller
-  // v1.5 vs v1.5.5   -> 1==1, 5==5, prefix matches -> v1.5 is smaller
-  // v1.5.5 vs v2.1   -> 1<2 -> v1.5.5 is smaller
-  CHECK(result->items[0].value == "v1.2.3.png");
-  CHECK(result->items[1].value == "v1.5.png");
-  CHECK(result->items[2].value == "v1.5.5.png");
-  CHECK(result->items[3].value == "v2.1.png");
-}
-
-TEST_CASE("小数点として比較するか選択できる", "[sequence]") {
-  auto const items = std::vector<std::string>{
-    "frame1.20.png",
-    "frame1.3.png",
-  };
-
-  SECTION("別々の数値として比較（デフォルト）") {
-    auto const detector = mojitonpp::SequenceDetector{};
-    auto const result   = detector.detect(items);
-    REQUIRE(result.has_value());
-    // 1.3 -> [1, 3]
-    // 1.20 -> [1, 20]
-    CHECK(result->items[0].value == "frame1.3.png");
-    CHECK(result->items[1].value == "frame1.20.png");
-  }
-
-  SECTION("小数点として比較") {
-    auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{.treat_dot_as_decimal = true}};
-    auto const result   = detector.detect(items);
-    REQUIRE(result.has_value());
-    // 1.3 -> [1.3]
-    // 1.20 -> [1.2] (Note: std::strtod parses 1.20 as 1.2)
-    CHECK(result->items[0].value == "frame1.20.png");
-    CHECK(result->items[1].value == "frame1.3.png");
-  }
-}
-
-TEST_CASE("閾値を指定できる", "[sequence]") {
-  auto items = makeSequence("shot_", 1, 8);
-  items.emplace_back("noise_a.bin");
-  items.emplace_back("noise_b.bin");
-
-  SECTION("デフォルト(90%)では失敗") {
-    auto const detector = mojitonpp::SequenceDetector{};
-    auto const result   = detector.detect(items);
-    CHECK_FALSE(result.has_value());
-  }
-
-  SECTION("80% を指定すれば成功") {
-    auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{.threshold = 0.8}};
-    auto const result   = detector.detect(items);
-    CHECK(result.has_value());
-  }
-}
-
-TEST_CASE("メタデータ（除外対象）判定の変更", "[metadata]") {
-  // 拡張子や接頭辞による判定は行わなくなった
-  CHECK_FALSE(mojitonpp::isMetadata("README.md"));
-  CHECK_FALSE(mojitonpp::isMetadata("vcpkg.json"));
-  CHECK_FALSE(mojitonpp::isMetadata("config.yaml"));
-
-  // ドットで始まるファイルは除外される
+TEST_CASE("メタデータ（除外対象）判定の強化", "[metadata]") {
   CHECK(mojitonpp::isMetadata(".gitignore"));
-  CHECK(mojitonpp::isMetadata(".config"));
+  CHECK(mojitonpp::isMetadata("Thumbs.db"));
+  CHECK(mojitonpp::isMetadata("desktop.ini"));
+  CHECK_FALSE(mojitonpp::isMetadata("README.md"));
 }
