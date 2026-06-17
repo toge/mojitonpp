@@ -109,4 +109,66 @@ TEST_CASE("メタデータ（除外対象）判定の強化", "[metadata]") {
   CHECK(mojitonpp::isMetadata("Thumbs.db"));
   CHECK(mojitonpp::isMetadata("desktop.ini"));
   CHECK_FALSE(mojitonpp::isMetadata("README.md"));
+  CHECK(mojitonpp::isMetadata(""));
+}
+
+TEST_CASE("空の入力は空の結果を返す", "[edge]") {
+  auto const detector = mojitonpp::SequenceDetector{};
+  CHECK(detector.detect(std::vector<std::string>{}).empty());
+}
+
+TEST_CASE("最小限の入力（2件）で系列を検出できる", "[edge]") {
+  auto const items = std::vector<std::string>{
+    "file_001.txt",
+    "file_002.txt",
+  };
+  auto const detector = mojitonpp::SequenceDetector{};
+  auto const results = detector.detect(items);
+  REQUIRE(results.size() == 1U);
+  CHECK(results[0].base_name == "file_");
+  CHECK(results[0].matched_count == 2U);
+  CHECK(results[0].items[0].indices.front() == 1.0);
+  CHECK(results[0].items[1].indices.front() == 2.0);
+}
+
+TEST_CASE("数字を含まない文字列は系列にならない", "[edge]") {
+  auto const items = std::vector<std::string>{
+    "alpha.txt",
+    "beta.txt",
+    "gamma.txt",
+  };
+  auto const detector = mojitonpp::SequenceDetector{};
+  auto const results = detector.detect(items);
+  // 共通接頭辞はあるが数字が末尾にない → 空のベース名を返す場合がある
+  CHECK(results.empty());
+}
+
+TEST_CASE("treat_dot_as_decimal で小数点を含む連番を扱える", "[decimal]") {
+  auto const items = std::vector<std::string>{
+    "data_1.5.csv",
+    "data_2.5.csv",
+    "data_3.5.csv",
+  };
+  auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
+    .treat_dot_as_decimal = true,
+  }};
+  auto const results = detector.detect(items);
+  REQUIRE(results.size() == 1U);
+  CHECK(results[0].base_name == "data_");
+  REQUIRE(results[0].items.size() == 3U);
+  CHECK(results[0].items[0].indices.front() == 1.5);
+  CHECK(results[0].items[1].indices.front() == 2.5);
+  CHECK(results[0].items[2].indices.front() == 3.5);
+}
+
+TEST_CASE("全件が同一系列の 100% カバレッジでも動作する", "[edge]") {
+  auto items = std::vector<std::string>{};
+  for (auto const i : std::views::iota(1, 11)) {
+    items.emplace_back(std::format("item_{:03}.png", i));
+  }
+  auto const detector = mojitonpp::SequenceDetector{};
+  auto const results = detector.detect(items);
+  REQUIRE(results.size() == 1U);
+  CHECK(results[0].base_name == "item_");
+  CHECK(results[0].matched_count == 10U);
 }

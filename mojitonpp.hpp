@@ -111,22 +111,21 @@ public:
       return {};
     }
 
-    auto const total_eligible = pool.size();
-    auto       results        = std::vector<detection_result>{};
+    auto results = std::vector<detection_result>{};
 
     while (!pool.empty()) {
+      auto const iteration_eligible = pool.size();
       auto const snapshot = buildTrie(pool);
-      auto const base_name = chooseBaseName(snapshot, total_eligible);
+      auto const base_name = chooseBaseName(snapshot, iteration_eligible);
 
-      // 有効なベース名が見つからない、または残りのプールが閾値に満たない場合は終了
-      if (base_name.empty() && pool.size() < coverageThreshold(total_eligible)) {
+      if (base_name.empty()) {
         break;
       }
 
       auto result = detection_result{
         .base_name      = base_name,
         .items          = {},
-        .eligible_count = total_eligible,
+        .eligible_count = iteration_eligible,
       };
 
       auto next_pool = std::vector<std::string>{};
@@ -142,12 +141,11 @@ public:
       }
 
       result.matched_count = result.items.size();
-      if (result.matched_count >= coverageThreshold(total_eligible)) {
+      if (result.matched_count >= coverageThreshold(iteration_eligible)) {
         std::ranges::sort(result.items, [](auto const& lhs, auto const& rhs) { return lhs < rhs; });
         results.push_back(std::move(result));
         pool = std::move(next_pool);
       } else {
-        // 最も支配的な候補でも閾値を満たさない場合は終了
         break;
       }
     }
@@ -214,7 +212,7 @@ private:
    * @return ベース名候補
    */
   [[nodiscard]]
-  auto trimTrailingNumericParts(std::string_view text) const {
+  auto trimTrailingNumericParts(std::string_view text) const noexcept -> std::string {
     auto changed = true;
     while (changed) {
       changed = false;
@@ -222,13 +220,8 @@ private:
         text.remove_suffix(1U);
         changed = true;
       }
-      if (options_.treat_dot_as_decimal && !text.empty() && text.back() == '.') {
-        auto temp = text;
-        temp.remove_suffix(1U);
-        if (!temp.empty() && std::isdigit(static_cast<unsigned char>(temp.back())) != 0) {
-          text.remove_suffix(1U);
-          changed = true;
-        }
+      if (changed && options_.treat_dot_as_decimal && !text.empty() && text.back() == '.') {
+        text.remove_suffix(1U);
       }
     }
     return std::string{text};
