@@ -1,21 +1,7 @@
 cmake_minimum_required(VERSION 3.25)
 project(mojitonpp LANGUAGES CXX)
 
-## add stdc++ compiler flag
-include(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG("-std=c++26" COMPILER_SUPPORTS_CXX26)
-CHECK_CXX_COMPILER_FLAG("-std=c++23" COMPILER_SUPPORTS_CXX23)
-CHECK_CXX_COMPILER_FLAG("-std=c++20" COMPILER_SUPPORTS_CXX20)
-CHECK_CXX_COMPILER_FLAG("-std=c++11" COMPILER_SUPPORTS_CXX11)
-if(COMPILER_SUPPORTS_CXX26)
-    set(STD_CPP cxx_std_26)
-elseif(COMPILER_SUPPORTS_CXX23)
-    set(STD_CPP cxx_std_23)
-elseif(COMPILER_SUPPORTS_CXX20)
-    set(STD_CPP cxx_std_20)
-else()
-    message(STATUS "The compiler ${CMAKE_CXX_COMPILER} has no C++20 support. Please use a different C++ compiler.")
-endif()
+set(STD_CPP cxx_std_20)
 
 ## add warning
 if (CMAKE_COMPILER_IS_GNUCXX)
