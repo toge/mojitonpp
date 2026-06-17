@@ -8,7 +8,6 @@
 #include <cmath>
 #include <concepts>
 #include <cstdint>
-#include <marisa.h>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -115,8 +114,8 @@ public:
 
     while (!pool.empty()) {
       auto const iteration_eligible = pool.size();
-      auto const snapshot = buildTrie(pool);
-      auto const base_name = chooseBaseName(snapshot, iteration_eligible);
+      std::ranges::sort(pool);
+      auto const base_name = chooseBaseName(pool, iteration_eligible);
 
       if (base_name.empty()) {
         break;
@@ -156,11 +155,6 @@ public:
 private:
   DetectorOptions options_;
 
-  struct trie_snapshot {
-    marisa::Trie             trie;
-    std::vector<std::string> names;
-  };
-
   /**
    * @brief 閾値を満たすために必要な件数を返す
    * @param total 総件数
@@ -169,31 +163,6 @@ private:
   [[nodiscard]]
   auto coverageThreshold(std::size_t const total) const noexcept -> std::size_t {
     return static_cast<std::size_t>(std::ceil(static_cast<double>(total) * options_.threshold));
-  }
-
-  /**
-   * @brief 静的 Trie と辞書順ソート済み名前一覧を構築する
-   * @param names 文字列一覧
-   * @return 構築済み Trie と辞書順一覧
-   */
-  [[nodiscard]]
-  static auto buildTrie(std::span<std::string const> names) -> trie_snapshot {
-    auto snapshot = trie_snapshot{};
-    snapshot.names.reserve(names.size());
-    for (auto const& name : names) {
-      snapshot.names.emplace_back(name);
-    }
-    std::ranges::sort(snapshot.names);
-
-    {
-      auto keyset = marisa::Keyset{};
-      for (auto const& name : snapshot.names) {
-        keyset.push_back(name.c_str());
-      }
-      snapshot.trie.build(keyset);
-    }
-
-    return snapshot;
   }
 
   /**
@@ -228,32 +197,32 @@ private:
   }
 
   /**
-   * @brief Trie 上で接頭辞一致件数を数える
-   * @param trie 構築済み Trie
+   * @brief ソート済み文字列配列上で接頭辞一致件数を二分探索で数える
+   * @param sorted ソート済み文字列一覧
    * @param prefix 調べる接頭辞
    * @return 一致件数
    */
   [[nodiscard]]
-  static auto countPrefixMatches(marisa::Trie const& trie, std::string_view const prefix) {
-    auto agent = marisa::Agent{};
-    agent.set_query(prefix.data(), prefix.size());
-
-    auto count = std::size_t{0U};
-    while (trie.predictive_search(agent)) {
-      ++count;
+  static auto countPrefixMatches(std::vector<std::string> const& sorted, std::string_view const prefix) -> std::size_t {
+    if (prefix.empty()) {
+      return sorted.size();
     }
-    return count;
+    auto const first = std::lower_bound(sorted.begin(), sorted.end(), prefix);
+    auto sentinel = std::string{prefix};
+    ++sentinel.back();
+    auto const last = std::lower_bound(sorted.begin(), sorted.end(), sentinel);
+    return static_cast<std::size_t>(last - first);
   }
 
   /**
    * @brief 閾値を満たす最大長のベース名を選ぶ
-   * @param snapshot Trie と辞書順文字列一覧
+   * @param sorted ソート済み文字列一覧
    * @param total_count 全体数
    * @return ベース名
    */
   [[nodiscard]]
-  auto chooseBaseName(trie_snapshot const& snapshot, std::size_t const total_count) const -> std::string {
-    if (snapshot.names.empty()) {
+  auto chooseBaseName(std::vector<std::string> const& sorted, std::size_t const total_count) const -> std::string {
+    if (sorted.empty()) {
       return {};
     }
 
@@ -261,18 +230,18 @@ private:
     if (threshold == 0) {
       return {};
     }
-    // snapshot.names.size() が threshold より小さい場合、スライディングウィンドウは組めない
-    if (snapshot.names.size() < threshold) {
+    // sorted.size() が threshold より小さい場合、スライディングウィンドウは組めない
+    if (sorted.size() < threshold) {
       return {};
     }
 
-    auto const window_end = snapshot.names.size() - threshold + 1U;
+    auto const window_end = sorted.size() - threshold + 1U;
     auto       best       = std::string{};
     auto       best_count = std::size_t{0U};
 
     for (auto const start : std::views::iota(std::size_t{0U}, window_end)) {
-      auto const& min_name  = snapshot.names[start];
-      auto const& max_name  = snapshot.names[start + threshold - 1U];
+      auto const& min_name  = sorted[start];
+      auto const& max_name  = sorted[start + threshold - 1U];
       auto const  raw_lcp   = longestCommonPrefix(min_name, max_name);
       auto const  candidate = trimTrailingNumericParts(raw_lcp);
 
@@ -280,7 +249,7 @@ private:
       auto high = candidate.size();
       while (low < high) {
         auto const mid   = (low + high + 1U) / 2U;
-        auto const count = countPrefixMatches(snapshot.trie, std::string_view{candidate}.substr(0U, mid));
+        auto const count = countPrefixMatches(sorted, std::string_view{candidate}.substr(0U, mid));
         if (count >= threshold) {
           low = mid;
         } else {
@@ -289,7 +258,7 @@ private:
       }
 
       auto const verified = candidate.substr(0U, low);
-      auto const matches  = verified.empty() ? snapshot.names.size() : countPrefixMatches(snapshot.trie, verified);
+      auto const matches  = verified.empty() ? sorted.size() : countPrefixMatches(sorted, verified);
       if (verified.size() > best.size() || (verified.size() == best.size() && matches > best_count) || (verified.size() == best.size() && matches == best_count && verified < best)) {
         best       = verified;
         best_count = matches;

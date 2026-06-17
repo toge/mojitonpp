@@ -63,7 +63,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 option(BUILD_TEST "Build tests" ON)
 option(BUILD_TOOL "Build tool" ON)
 
-find_package(Marisa CONFIG REQUIRED)
 if(BUILD_TOOL)
     find_package(glaze CONFIG REQUIRED)
 endif()
@@ -75,7 +74,6 @@ target_include_directories(mojitonpp INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_link_libraries(mojitonpp INTERFACE Marisa::marisa)
 target_compile_features(mojitonpp INTERFACE ${STD_CPP})
 
 if(BUILD_TOOL)
