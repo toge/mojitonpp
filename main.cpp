@@ -21,6 +21,7 @@ struct cli_options {
   bool                     verbose{};
   double                   threshold{0.9};
   bool                     dot_as_decimal{};
+  bool                     recursive{};
   std::vector<std::string> extensions{};
 };
 
@@ -60,6 +61,7 @@ auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> 
       std::print("  --verbose              詳細な情報を出力する\n");
       std::print("  --threshold <double>   系列とみなす閾値 (デフォルト: 0.9)\n");
       std::print("  --dot-as-decimal       ドットを小数点として扱う\n");
+      std::print("  --recursive            サブディレクトリも再帰的に走査する\n");
       std::print("  --extension <ext>      対象とする拡張子 (例: .png)\n");
       return std::nullopt;
     }
@@ -75,12 +77,21 @@ auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> 
       options.dot_as_decimal = true;
       continue;
     }
+    if (arg == "--recursive") {
+      options.recursive = true;
+      continue;
+    }
     if (arg == "--threshold") {
       if (index + 1U >= args.size()) {
         std::cerr << "--threshold には値を指定してください。\n";
         return std::nullopt;
       }
-      options.threshold = std::stod(args[++index]);
+      auto const threshold_arg = std::string_view{args[++index]};
+      auto [ptr, ec] = std::from_chars(threshold_arg.data(), threshold_arg.data() + threshold_arg.size(), options.threshold);
+      if (ec != std::errc{}) {
+        std::cerr << "--threshold には数値を指定してください。\n";
+        return std::nullopt;
+      }
       continue;
     }
     if (arg == "--extension") {
@@ -109,25 +120,33 @@ auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> 
  * @brief 対象ディレクトリから検出候補ファイルを収集する
  * @param directory 対象ディレクトリ
  * @param verbose 詳細な情報を出力するかどうか
+ * @param recursive サブディレクトリを再帰的に走査するかどうか
  * @return 収集した通常ファイル名一覧
  */
 [[nodiscard]]
-auto collectCandidateFilenames(std::filesystem::path const& directory, bool verbose) -> std::vector<std::string> {
+auto collectCandidateFilenames(std::filesystem::path const& directory, bool verbose, bool recursive) -> std::vector<std::string> {
   auto filenames = std::vector<std::string>{};
 
-  for (auto const& entry : std::filesystem::directory_iterator{directory}) {
-    if (!entry.is_regular_file()) {
-      continue;
-    }
-
-    auto const filename = entry.path().filename().string();
-    if (mojitonpp::isMetadata(filename)) {
-      if (verbose) {
-        std::cout << "Skip metadata file " << filename << '\n';
+  auto collect = [&](auto&& iterator) {
+    for (auto const& entry : iterator) {
+      if (!entry.is_regular_file()) {
+        continue;
       }
-      continue;
+      auto const filename = entry.path().filename().string();
+      if (mojitonpp::isMetadata(filename)) {
+        if (verbose) {
+          std::print("Skip metadata file {}\n", filename);
+        }
+        continue;
+      }
+      filenames.emplace_back(filename);
     }
-    filenames.emplace_back(filename);
+  };
+
+  if (recursive) {
+    collect(std::filesystem::recursive_directory_iterator{directory});
+  } else {
+    collect(std::filesystem::directory_iterator{directory});
   }
 
   return filenames;
@@ -219,10 +238,10 @@ auto main(int argc, char* argv[]) -> int {
     return EXIT_FAILURE;
   }
 
-  auto const filenames = collectCandidateFilenames(options->directory, options->verbose);
+  auto const filenames = collectCandidateFilenames(options->directory, options->verbose, options->recursive);
 
   if (options->verbose) {
-    std::cout << "Collected " << filenames.size() << " candidate files from " << std::filesystem::absolute(options->directory).string() << '\n';
+    std::print("Collected {} candidate files from {}\n", filenames.size(), std::filesystem::absolute(options->directory).string());
   }
 
   auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
@@ -233,19 +252,16 @@ auto main(int argc, char* argv[]) -> int {
   auto const results  = detector.detect(filenames);
 
   if (options->json_output) {
-    // フィルタリング後の実際の対象ファイル数を計算
-    auto filtered_count = std::size_t{0};
-    for (auto const& f : filenames) {
-        if (options->extensions.empty()) {
-            filtered_count++;
-        } else {
-            if (std::ranges::any_of(options->extensions, [&](auto const& ext) { return f.ends_with(ext); })) {
-                filtered_count++;
-            }
-        }
-    }
+    auto const eligible_count = [&]() -> std::size_t {
+      if (options->extensions.empty()) {
+        return filenames.size();
+      }
+      return std::ranges::count_if(filenames, [&](auto const& f) {
+        return std::ranges::any_of(options->extensions, [&](auto const& ext) { return f.ends_with(ext); });
+      });
+    }();
 
-    auto report = makeJsonReport(options->directory, filtered_count, results);
+    auto report = makeJsonReport(options->directory, eligible_count, results);
     auto buffer = std::string{};
     if (auto const ec = glz::write<glz::opts{.prettify = true}>(report, buffer); ec) {
       std::cerr << "JSON 出力の生成に失敗しました。\n";
@@ -256,5 +272,5 @@ auto main(int argc, char* argv[]) -> int {
   }
 
   printHumanReadable(options->directory, results);
-  return results.empty() ? EXIT_FAILURE : EXIT_SUCCESS;
+  return EXIT_SUCCESS;
 }
