@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # 1. 複数のFedoraバージョンをマトリクスとして定義
+    strategy:
+      fail-fast: false # 1つのバージョンが失敗しても、他のバージョンの検証を最後まで継続する
+      matrix:
+        # gcc 16 : Fedora 44
+        # gcc 15 : Fedora 43
+        # gcc 14 : Fedora 41
+        # gcc 13 : Fedora 39
+        fedora_version: ["44", "43", "41", "39"]
+
+    # 2. 定義したバージョンを動的にコンテナへ割り当て
+    container: fedora:${{ matrix.fedora_version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: dnf install -y gcc-c++ cmake ninja-build git curl zip unzip tar
+
+      - name: Check GCC version
+        run: |
+          g++ --version
+          g++ -dumpversion | grep -E "^(1[4-9]|[2-9][0-9])(\.|\$)" || { echo "ERROR: GCC 14+ required, found $(g++ -dumpversion)"; exit 1; }
+
+      # 3. キャッシュキーにもFedoraのバージョンを混ぜてコンフリクトを防ぐ
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-fedora-${{ matrix.fedora_version }}-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-fedora-${{ matrix.fedora_version }}-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Configure
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build -V
