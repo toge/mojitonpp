@@ -4,9 +4,10 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <iostream>
 #include <optional>
-#include <print>
+
 #include <ranges>
 #include <span>
 #include <string>
@@ -55,14 +56,14 @@ auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> 
   for (auto index = std::size_t{1U}; index < args.size(); ++index) {
     auto const arg = std::string_view{args[index]};
     if (arg == "-h" || arg == "--help") {
-      std::print("使い方: sequence_detector [options] <directory>\n");
-      std::print("オプション:\n");
-      std::print("  --json                 JSON 形式で出力する\n");
-      std::print("  --verbose              詳細な情報を出力する\n");
-      std::print("  --threshold <double>   系列とみなす閾値 (デフォルト: 0.9)\n");
-      std::print("  --dot-as-decimal       ドットを小数点として扱う\n");
-      std::print("  --recursive            サブディレクトリも再帰的に走査する\n");
-      std::print("  --extension <ext>      対象とする拡張子 (例: .png)\n");
+      std::cout << "使い方: sequence_detector [options] <directory>\n";
+      std::cout << "オプション:\n";
+      std::cout << "  --json                 JSON 形式で出力する\n";
+      std::cout << "  --verbose              詳細な情報を出力する\n";
+      std::cout << "  --threshold <double>   系列とみなす閾値 (デフォルト: 0.9)\n";
+      std::cout << "  --dot-as-decimal       ドットを小数点として扱う\n";
+      std::cout << "  --recursive            サブディレクトリも再帰的に走査する\n";
+      std::cout << "  --extension <ext>      対象とする拡張子 (例: .png)\n";
       return std::nullopt;
     }
     if (arg == "--json") {
@@ -135,7 +136,7 @@ auto collectCandidateFilenames(std::filesystem::path const& directory, bool verb
       auto const filename = entry.path().filename().string();
       if (mojitonpp::isMetadata(filename)) {
         if (verbose) {
-          std::print("Skip metadata file {}\n", filename);
+          std::cout << std::format("Skip metadata file {}\n", filename);
         }
         continue;
       }
@@ -195,18 +196,18 @@ auto makeJsonReport(std::filesystem::path const& directory, std::size_t eligible
  * @param results 検出結果リスト
  */
 auto printHumanReadable(std::filesystem::path const& directory, std::vector<mojitonpp::detection_result> const& results) {
-  std::print("対象ディレクトリ: {}\n", std::filesystem::absolute(directory).string());
+  std::cout << std::format("対象ディレクトリ: {}\n", std::filesystem::absolute(directory).string());
   if (results.empty()) {
-    std::print("系列は検出されませんでした。\n");
+    std::cout << "系列は検出されませんでした。\n";
     return;
   }
 
   for (auto const& [index, result] : std::views::enumerate(results)) {
     auto const base_name = result.base_name.empty() ? std::string{"(空文字列)"} : result.base_name;
-    std::print("\n--- 系列 #{} ---\n", index + 1);
-    std::print("ベース名: {}\n", base_name);
-    std::print("検出件数: {}/{} ({:.2f}%)\n", result.matched_count, result.eligible_count, result.coverage() * 100.0);
-    std::print("連番ファイル一覧:\n");
+    std::cout << std::format("\n--- 系列 #{} ---\n", index + 1);
+    std::cout << std::format("ベース名: {}\n", base_name);
+    std::cout << std::format("検出件数: {}/{} ({:.2f}%)\n", result.matched_count, result.eligible_count, result.coverage() * 100.0);
+    std::cout << "連番ファイル一覧:\n";
     for (auto const& item : result.items) {
       auto indices_str = std::string{};
       for (auto const val : item.indices) {
@@ -215,7 +216,7 @@ auto printHumanReadable(std::filesystem::path const& directory, std::vector<moji
         }
         indices_str += std::format("{}", val);
       }
-      std::print("[{:>12}]  {}\n", indices_str, item.value);
+      std::cout << std::format("[{:>12}]  {}\n", indices_str, item.value);
     }
   }
 }
@@ -241,7 +242,7 @@ auto main(int argc, char* argv[]) -> int {
   auto const filenames = collectCandidateFilenames(options->directory, options->verbose, options->recursive);
 
   if (options->verbose) {
-    std::print("Collected {} candidate files from {}\n", filenames.size(), std::filesystem::absolute(options->directory).string());
+    std::cout << std::format("Collected {} candidate files from {}\n", filenames.size(), std::filesystem::absolute(options->directory).string());
   }
 
   auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
@@ -267,7 +268,7 @@ auto main(int argc, char* argv[]) -> int {
       std::cerr << "JSON 出力の生成に失敗しました。\n";
       return EXIT_FAILURE;
     }
-    std::print("{}\n", buffer);
+    std::cout << buffer << '\n';
     return EXIT_SUCCESS;
   }
 
