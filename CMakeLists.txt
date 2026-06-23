@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.25)
 project(mojitonpp LANGUAGES CXX)
 
-set(STD_CPP cxx_std_20)
+option(BUILD_TEST "Build tests" ON)
+option(BUILD_TOOL "Build tool" ON)
 
 ## add warning
 if (CMAKE_COMPILER_IS_GNUCXX)
@@ -25,29 +26,10 @@ if (MSVC)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /Ox")
 endif()
 
-
-## static option
-option(STATIC "static binary" OFF)
-if (CMAKE_COMPILER_IS_GNUCXX)
-    if(STATIC)
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -static -static-libstdc++ -static-libgcc")
-    endif()
-endif()
-
-## add LTO flag
-include(CheckIPOSupported)
-check_ipo_supported(RESULT ipo_supported OUTPUT error)
-if(ipo_supported)
-    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-endif()
-
 ## other flag
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-
-option(BUILD_TEST "Build tests" ON)
-option(BUILD_TOOL "Build tool" ON)
 
 if(BUILD_TOOL)
     find_package(glaze CONFIG REQUIRED)
@@ -60,12 +42,13 @@ target_include_directories(mojitonpp INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_compile_features(mojitonpp INTERFACE ${STD_CPP})
+target_compile_features(mojitonpp INTERFACE cxx_std_20)
 
 if(BUILD_TOOL)
     add_executable(sequence_detector main.cpp)
     target_link_libraries(sequence_detector PRIVATE mojitonpp glaze::glaze)
-    target_compile_features(sequence_detector PRIVATE ${STD_CPP})
+    # glazeのためC++23が必要
+    target_compile_features(sequence_detector PRIVATE cxx_std_23)
 endif()
 
 # Installation rules
