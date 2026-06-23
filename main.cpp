@@ -14,8 +14,6 @@
 #include <string_view>
 #include <vector>
 
-namespace {
-
 struct cli_options {
   std::filesystem::path    directory{"."};
   bool                     json_output{};
@@ -43,6 +41,8 @@ struct json_root_report {
   std::size_t                       eligible_file_count{};
   std::vector<json_sequence_report> sequences;
 };
+
+namespace {
 
 /**
  * @brief コマンドライン引数を解析する
