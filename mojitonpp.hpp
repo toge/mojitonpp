@@ -8,6 +8,7 @@
 #include <cmath>
 #include <concepts>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -17,6 +18,27 @@
 #include <vector>
 
 namespace mojitonpp {
+namespace detail {
+[[nodiscard]]
+inline auto fromChars(const char* first, const char* last, double& value) noexcept -> std::from_chars_result {
+#if defined(__cpp_lib_to_chars) && __cpp_lib_to_chars >= 202306L
+  return std::from_chars(first, last, value);
+#else
+  auto       buf    = std::array<char, 64>{};
+  auto const len    = static_cast<std::size_t>(last - first);
+  auto const ncopy  = (std::min)(len, buf.size() - 1U);
+  std::copy_n(first, ncopy, buf.data());
+  buf[ncopy] = '\0';
+  char* end{};
+  auto const val = std::strtod(buf.data(), &end);
+  if (end == buf.data()) {
+    return {first, std::errc::invalid_argument};
+  }
+  value = val;
+  return {first + (end - buf.data()), std::errc{}};
+#endif
+}
+}  // namespace detail
 
 /**
  * @brief 検出された要素の情報
@@ -293,7 +315,7 @@ private:
     while (ptr < end) {
       if (std::isdigit(static_cast<unsigned char>(*ptr)) != 0 || (treat_dot_as_decimal && *ptr == '.')) {
         auto  val      = 0.0;
-        auto const res = std::from_chars(ptr, end, val);
+        auto const res = detail::fromChars(ptr, end, val);
         if (res.ec == std::errc{}) {
           indices.push_back(val);
           ptr = res.ptr;

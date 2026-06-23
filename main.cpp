@@ -88,7 +88,7 @@ auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> 
         return std::nullopt;
       }
       auto const threshold_arg = std::string_view{args[++index]};
-      auto [ptr, ec] = std::from_chars(threshold_arg.data(), threshold_arg.data() + threshold_arg.size(), options.threshold);
+      auto [ptr, ec] = mojitonpp::detail::fromChars(threshold_arg.data(), threshold_arg.data() + threshold_arg.size(), options.threshold);
       if (ec != std::errc{}) {
         std::cerr << "--threshold には数値を指定してください。\n";
         return std::nullopt;
@@ -202,7 +202,7 @@ auto printHumanReadable(std::filesystem::path const& directory, std::vector<moji
     return;
   }
 
-  for (auto const& [index, result] : std::views::enumerate(results)) {
+  for (auto index = std::size_t{}; auto const& result : results) {
     auto const base_name = result.base_name.empty() ? std::string{"(空文字列)"} : result.base_name;
     std::cout << std::format("\n--- 系列 #{} ---\n", index + 1);
     std::cout << std::format("ベース名: {}\n", base_name);
