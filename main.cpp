@@ -40,6 +40,7 @@ struct json_root_report {
   std::string                       directory;
   std::size_t                       eligible_file_count{};
   std::vector<json_sequence_report> sequences;
+  std::vector<std::string>          excluded;
 };
 
 namespace {
@@ -161,11 +162,11 @@ auto collectCandidateFilenames(std::filesystem::path const& directory, bool verb
  * @return JSON 直列化用のレポート
  */
 [[nodiscard]]
-auto makeJsonReport(std::filesystem::path const& directory, std::size_t eligible_count, std::vector<mojitonpp::detection_result> const& results) -> json_root_report {
+auto makeJsonReport(std::filesystem::path const& directory, std::size_t eligible_count, mojitonpp::detect_result const& detect) -> json_root_report {
   auto sequences = std::vector<json_sequence_report>{};
-  sequences.reserve(results.size());
+  sequences.reserve(detect.sequences.size());
 
-  for (auto const& result : results) {
+  for (auto const& result : detect.sequences) {
     auto files = std::vector<json_file_entry>{};
     files.reserve(result.items.size());
     for (auto const& item : result.items) {
@@ -187,6 +188,7 @@ auto makeJsonReport(std::filesystem::path const& directory, std::size_t eligible
     .directory           = std::filesystem::absolute(directory).string(),
     .eligible_file_count = eligible_count,
     .sequences           = std::move(sequences),
+    .excluded            = detect.excluded,
   };
 }
 
@@ -195,14 +197,14 @@ auto makeJsonReport(std::filesystem::path const& directory, std::size_t eligible
  * @param directory 対象ディレクトリ
  * @param results 検出結果リスト
  */
-auto printHumanReadable(std::filesystem::path const& directory, std::vector<mojitonpp::detection_result> const& results) {
+auto printHumanReadable(std::filesystem::path const& directory, mojitonpp::detect_result const& detect) {
   std::cout << std::format("対象ディレクトリ: {}\n", std::filesystem::absolute(directory).string());
-  if (results.empty()) {
+  if (detect.sequences.empty()) {
     std::cout << "系列は検出されませんでした。\n";
     return;
   }
 
-  for (auto index = std::size_t{}; auto const& result : results) {
+  for (auto index = std::size_t{}; auto const& result : detect.sequences) {
     auto const base_name = result.base_name.empty() ? std::string{"(空文字列)"} : result.base_name;
     std::cout << std::format("\n--- 系列 #{} ---\n", index + 1);
     std::cout << std::format("ベース名: {}\n", base_name);
@@ -217,6 +219,13 @@ auto printHumanReadable(std::filesystem::path const& directory, std::vector<moji
         indices_str += std::format("{}", val);
       }
       std::cout << std::format("[{:>12}]  {}\n", indices_str, item.value);
+    }
+  }
+
+  if (!detect.excluded.empty()) {
+    std::cout << std::format("\n除外された文字列 ({}件):\n", detect.excluded.size());
+    for (auto const& name : detect.excluded) {
+      std::cout << std::format("  {}\n", name);
     }
   }
 }

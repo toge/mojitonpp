@@ -80,6 +80,14 @@ struct detection_result {
 };
 
 /**
+ * @brief 検出結果のまとめ
+ */
+struct detect_result {
+  std::vector<detection_result> sequences{}; // <- 検出された系列のリスト
+  std::vector<std::string>      excluded{};  // <- どの系列にも含まれなかった文字列
+};
+
+/**
  * @brief 文字列として扱える要素を持つ入力範囲を表す Concept
  */
 template <typename Range>
@@ -109,7 +117,7 @@ public:
    */
   template <string_range Range>
   [[nodiscard]]
-  auto detect(Range const& inputs) const -> std::vector<detection_result> {
+  auto detect(Range const& inputs) const -> detect_result {
     auto pool = std::vector<std::string>{};
     if constexpr (std::ranges::sized_range<Range>) {
       pool.reserve(std::ranges::size(inputs));
@@ -129,7 +137,7 @@ public:
     }
 
     if (pool.empty()) {
-      return {};
+      return detect_result{};
     }
 
     auto results = std::vector<detection_result>{};
@@ -171,7 +179,10 @@ public:
       }
     }
 
-    return results;
+    return detect_result{
+      .sequences = std::move(results),
+      .excluded  = std::move(pool),
+    };
   }
 
 private:

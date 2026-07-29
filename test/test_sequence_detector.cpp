@@ -29,11 +29,11 @@ TEST_CASE("支配的な連番系列を安定して検出できる", "[sequence]"
   items.emplace_back("misc-file.txt");
 
   auto const detector = mojitonpp::SequenceDetector{};
-  auto const results  = detector.detect(items);
+  auto const result   = detector.detect(items);
 
-  REQUIRE(results.size() == 1U);
-  CHECK(results[0].base_name == "episode_");
-  CHECK(results[0].matched_count == 90U);
+  REQUIRE(result.sequences.size() == 1U);
+  CHECK(result.sequences[0].base_name == "episode_");
+  CHECK(result.sequences[0].matched_count == 90U);
 }
 
 TEST_CASE("複数系列を同時に検出できる", "[sequence]") {
@@ -46,12 +46,12 @@ TEST_CASE("複数系列を同時に検出できる", "[sequence]") {
 
   // 閾値を 0.3 に下げて、各 40% 占める系列を見つけられるようにする
   auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{.threshold = 0.3}};
-  auto const results  = detector.detect(items);
+  auto const result   = detector.detect(items);
 
-  REQUIRE(results.size() == 2U);
+  REQUIRE(result.sequences.size() == 2U);
   
   auto const has_base = [&](std::string_view name) {
-    return std::ranges::any_of(results, [name](auto const& r) { return r.base_name == name; });
+    return std::ranges::any_of(result.sequences, [name](auto const& r) { return r.base_name == name; });
   };
   
   CHECK(has_base("shot_A_"));
@@ -68,10 +68,10 @@ TEST_CASE("拡張子でフィルタリングできる", "[filter]") {
       .threshold = 0.9,
       .allowed_extensions = {".png"}
     }};
-    auto const results = detector.detect(items);
-    REQUIRE(results.size() == 1U);
-    CHECK(results[0].base_name == "frame_");
-    for (auto const& item : results[0].items) {
+    auto const result = detector.detect(items);
+    REQUIRE(result.sequences.size() == 1U);
+    CHECK(result.sequences[0].base_name == "frame_");
+    for (auto const& item : result.sequences[0].items) {
       CHECK(item.value.ends_with(".png"));
     }
   }
@@ -81,9 +81,9 @@ TEST_CASE("拡張子でフィルタリングできる", "[filter]") {
       .threshold = 0.9,
       .allowed_extensions = {".jpg"}
     }};
-    auto const results = detector.detect(items);
-    REQUIRE(results.size() == 1U);
-    CHECK(results[0].base_name == "image_");
+    auto const result = detector.detect(items);
+    REQUIRE(result.sequences.size() == 1U);
+    CHECK(result.sequences[0].base_name == "image_");
   }
 }
 
@@ -95,13 +95,13 @@ TEST_CASE("自然順でソートされる", "[sequence]") {
   };
 
   auto const detector = mojitonpp::SequenceDetector{};
-  auto const results  = detector.detect(items);
+  auto const result   = detector.detect(items);
 
-  REQUIRE(results.size() == 1U);
-  REQUIRE(results[0].items.size() == 3U);
-  CHECK(results[0].items[0].indices.front() == 1.0);
-  CHECK(results[0].items[1].indices.front() == 2.0);
-  CHECK(results[0].items[2].indices.front() == 10.0);
+  REQUIRE(result.sequences.size() == 1U);
+  REQUIRE(result.sequences[0].items.size() == 3U);
+  CHECK(result.sequences[0].items[0].indices.front() == 1.0);
+  CHECK(result.sequences[0].items[1].indices.front() == 2.0);
+  CHECK(result.sequences[0].items[2].indices.front() == 10.0);
 }
 
 TEST_CASE("メタデータ（除外対象）判定の強化", "[metadata]") {
@@ -114,7 +114,7 @@ TEST_CASE("メタデータ（除外対象）判定の強化", "[metadata]") {
 
 TEST_CASE("空の入力は空の結果を返す", "[edge]") {
   auto const detector = mojitonpp::SequenceDetector{};
-  CHECK(detector.detect(std::vector<std::string>{}).empty());
+  CHECK(detector.detect(std::vector<std::string>{}).sequences.empty());
 }
 
 TEST_CASE("最小限の入力（2件）で系列を検出できる", "[edge]") {
@@ -123,12 +123,12 @@ TEST_CASE("最小限の入力（2件）で系列を検出できる", "[edge]") {
     "file_002.txt",
   };
   auto const detector = mojitonpp::SequenceDetector{};
-  auto const results = detector.detect(items);
-  REQUIRE(results.size() == 1U);
-  CHECK(results[0].base_name == "file_");
-  CHECK(results[0].matched_count == 2U);
-  CHECK(results[0].items[0].indices.front() == 1.0);
-  CHECK(results[0].items[1].indices.front() == 2.0);
+  auto const result   = detector.detect(items);
+  REQUIRE(result.sequences.size() == 1U);
+  CHECK(result.sequences[0].base_name == "file_");
+  CHECK(result.sequences[0].matched_count == 2U);
+  CHECK(result.sequences[0].items[0].indices.front() == 1.0);
+  CHECK(result.sequences[0].items[1].indices.front() == 2.0);
 }
 
 TEST_CASE("数字を含まない文字列は系列にならない", "[edge]") {
@@ -138,9 +138,9 @@ TEST_CASE("数字を含まない文字列は系列にならない", "[edge]") {
     "gamma.txt",
   };
   auto const detector = mojitonpp::SequenceDetector{};
-  auto const results = detector.detect(items);
+  auto const result   = detector.detect(items);
   // 共通接頭辞はあるが数字が末尾にない → 空のベース名を返す場合がある
-  CHECK(results.empty());
+  CHECK(result.sequences.empty());
 }
 
 TEST_CASE("treat_dot_as_decimal で小数点を含む連番を扱える", "[decimal]") {
@@ -152,13 +152,13 @@ TEST_CASE("treat_dot_as_decimal で小数点を含む連番を扱える", "[deci
   auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{
     .treat_dot_as_decimal = true,
   }};
-  auto const results = detector.detect(items);
-  REQUIRE(results.size() == 1U);
-  CHECK(results[0].base_name == "data_");
-  REQUIRE(results[0].items.size() == 3U);
-  CHECK(results[0].items[0].indices.front() == 1.5);
-  CHECK(results[0].items[1].indices.front() == 2.5);
-  CHECK(results[0].items[2].indices.front() == 3.5);
+  auto const result = detector.detect(items);
+  REQUIRE(result.sequences.size() == 1U);
+  CHECK(result.sequences[0].base_name == "data_");
+  REQUIRE(result.sequences[0].items.size() == 3U);
+  CHECK(result.sequences[0].items[0].indices.front() == 1.5);
+  CHECK(result.sequences[0].items[1].indices.front() == 2.5);
+  CHECK(result.sequences[0].items[2].indices.front() == 3.5);
 }
 
 TEST_CASE("全件が同一系列の 100% カバレッジでも動作する", "[edge]") {
@@ -167,8 +167,35 @@ TEST_CASE("全件が同一系列の 100% カバレッジでも動作する", "[e
     items.emplace_back(std::format("item_{:03}.png", i));
   }
   auto const detector = mojitonpp::SequenceDetector{};
-  auto const results = detector.detect(items);
-  REQUIRE(results.size() == 1U);
-  CHECK(results[0].base_name == "item_");
-  CHECK(results[0].matched_count == 10U);
+  auto const result   = detector.detect(items);
+  REQUIRE(result.sequences.size() == 1U);
+  CHECK(result.sequences[0].base_name == "item_");
+  CHECK(result.sequences[0].matched_count == 10U);
+}
+
+TEST_CASE("除外された文字列を取得できる", "[excluded]") {
+  auto items = makeSequence("episode_", 1, 90);
+  items.emplace_back("aaa-noise.bin");
+  items.emplace_back("zzz-noise.bin");
+  items.emplace_back("misc-file.txt");
+
+  auto const detector = mojitonpp::SequenceDetector{};
+  auto const result   = detector.detect(items);
+
+  REQUIRE(result.sequences.size() == 1U);
+  REQUIRE(result.excluded.size() == 3U);
+  CHECK(result.excluded[0] == "aaa-noise.bin");
+  CHECK(result.excluded[1] == "misc-file.txt");
+  CHECK(result.excluded[2] == "zzz-noise.bin");
+}
+
+TEST_CASE("全件が系列の場合は除外リストが空", "[excluded]") {
+  auto const items = std::vector<std::string>{
+    "file_001.txt",
+    "file_002.txt",
+  };
+  auto const detector = mojitonpp::SequenceDetector{};
+  auto const result   = detector.detect(items);
+  REQUIRE(result.sequences.size() == 1U);
+  CHECK(result.excluded.empty());
 }
