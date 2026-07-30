@@ -100,6 +100,7 @@ struct DetectorOptions {
   double                   threshold{0.9}; // <- 系列とみなすための最低限の検出率（0.0～1.0）
   bool                     treat_dot_as_decimal{false}; // <- ドットを小数点として扱うかどうか
   std::vector<std::string> allowed_extensions{}; // <- 許可する拡張子（空の場合はすべて許可）
+  bool                     build_excluded{true}; // <- detect_result.excluded を構築するかどうか（false にすると除外リストを空にする）
 };
 
 /**
@@ -179,9 +180,16 @@ public:
       }
     }
 
+    if (options_.build_excluded) {
+      return detect_result{
+        .sequences = std::move(results),
+        .excluded  = std::move(pool),
+      };
+    }
+
     return detect_result{
       .sequences = std::move(results),
-      .excluded  = std::move(pool),
+      .excluded  = {},
     };
   }
 
