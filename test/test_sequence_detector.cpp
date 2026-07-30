@@ -199,3 +199,18 @@ TEST_CASE("全件が系列の場合は除外リストが空", "[excluded]") {
   REQUIRE(result.sequences.size() == 1U);
   CHECK(result.excluded.empty());
 }
+
+TEST_CASE("build_excluded オプションが false のとき excluded を構築しない", "[options]") {
+  auto items = makeSequence("episode_", 1, 90);
+  items.emplace_back("a-noise.bin");
+  items.emplace_back("b-noise.bin");
+  items.emplace_back("misc.txt");
+
+  auto const detector = mojitonpp::SequenceDetector{mojitonpp::DetectorOptions{.build_excluded = false}};
+  auto const result   = detector.detect(items);
+
+  REQUIRE(result.sequences.size() == 1U);
+  CHECK(result.sequences[0].base_name == "episode_");
+  CHECK(result.sequences[0].matched_count == 90U);
+  CHECK(result.excluded.empty());
+}
