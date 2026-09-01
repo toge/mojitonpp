@@ -79,6 +79,39 @@ Catch2で以下を検証しています。
 - `frame1`, `frame2`, `frame10` を数値順に並べること
 - 90% 未満の系列は失敗扱いになること
 
+## FREESTANDING モード (wasm32-unknown-unknown)
+
+`-DMOJITONPP_FREESTANDING` を定義してコンパイルすると、libc の関数 (`isdigit` / `ceil` / `strtod` / `from_chars`) を一切使わないフリースタンディングモードになります。`wasm32-unknown-unknown` + `-nostdlib` + `-fno-exceptions` でビルドでき、wasm3 等に組み込んだ WebAssembly ゲストとして動作します。
+
+ゲストモジュールのビルド (clang は emsdk 同梱のもの、libc++ ヘッダは emsdk の sysroot を使用):
+
+```bash
+cmake -S . -B build_freestanding -DENABLE_FREESTANDING=ON [必要に応じて -DCMAKE_TOOLCHAIN_FILE=...]
+cmake --build build_freestanding --target freestanding_guest
+# -> build_freestanding/mojitonpp_guest.wasm (imports: なし)
+```
+
+生成されるモジュールは `mojiton_detect` / `mojiton_scratch` / `memory` のみをエクスポートし、インポートはありません。ゲストのAPI:
+
+| エクスポート | シグネチャ | 説明 |
+|---|---|---|
+| `mojiton_scratch` | `(len: i32) -> i32` | 入力バッファを確保 (バンプアロケータ) |
+| `mojiton_detect` | `(ptr: i32, len: i32) -> i32` | `'\n'` 区切り文字列群を検出し、NUL 終端の結果文字列 (`base|item|item...` 1系統1行) のポインタを返す |
+
+wasm3 ホスト側の呼び出し手順 (C API):
+
+```c
+M3Result r;
+m3_FindFunction(&detect, mod, "mojiton_detect");
+m3_FindFunction(&scratch, mod, "mojiton_scratch");
+uint32_t buf = scratch(len);            // 1. バッファ確保
+memcpy(m3_GetMemory(runtime, &r, 0) + buf, input, len);  // 2. 入力書き込み
+uint32_t out = detect(buf, len);        // 3. 検出実行
+// 4. m3_GetMemory から out を起点に NUL まで読んで結果文字列を取得
+```
+
+`wasm/run_guest.mjs` が同じ手順を Node.js で実装したスモークテスト (`ctest` の `freestanding_smoke`) です。詳細は `wasm/guest.cpp`・`wasm/freestanding_support.cpp` を参照してください。
+
 ## ライセンス
 
 MIT License

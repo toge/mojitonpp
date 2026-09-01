@@ -1,14 +1,13 @@
 #ifndef MOJITONPP_HPP__
 #define MOJITONPP_HPP__
 
+// フリースタンディングモード (wasm32-unknown-unknown + -nostdlib 等) では
+// libc の関数 (isdigit / ceil / strtod / from_chars) を一切使用しない。
+// ホスト環境との挙動を一致させるため、常時ロケール非依存の自前実装を用いる。
 #include <algorithm>
 #include <array>
-#include <cctype>
-#include <charconv>
-#include <cmath>
 #include <concepts>
 #include <cstdint>
-#include <cstdlib>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -16,9 +15,107 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
+#if !defined(MOJITONPP_FREESTANDING)
+#include <charconv>
+#include <cstdlib>
+#endif
 
 namespace mojitonpp {
 namespace detail {
+[[nodiscard]]
+constexpr auto isDigit(char const c) noexcept -> bool {
+  return c >= '0' && c <= '9';
+}
+
+// ponytail: parseDecimal は 16 桁程度までの 10 進数を想定 (hex / inf / nan 非対応、
+// 桁数が多くなると double 精度で丸めが発生する)。index 抽出用途では十分。
+[[nodiscard]]
+inline auto parseDecimal(const char* ptr, const char* const last, double& value) noexcept -> const char* {
+  auto const start  = ptr;
+  auto       mant   = 0.0;
+  while (ptr < last && isDigit(*ptr)) {
+    mant = mant * 10.0 + static_cast<double>(*ptr - '0');
+    ++ptr;
+  }
+  auto frac        = 0.0;
+  auto frac_digits = 0;
+  if (ptr < last && *ptr == '.') {
+    ++ptr;
+    while (ptr < last && isDigit(*ptr)) {
+      frac = frac * 10.0 + static_cast<double>(*ptr - '0');
+      ++frac_digits;
+      ++ptr;
+    }
+  }
+  // 数字を1つも読めなければ失敗
+  if (ptr == start || (ptr == start + 1 && *start == '.')) {
+    return nullptr;
+  }
+  auto val = mant;
+  for (auto i = 0; i < frac_digits; ++i) {
+    val *= 10.0;
+  }
+  val += frac;
+  for (auto i = 0; i < frac_digits; ++i) {
+    val /= 10.0;
+  }
+  // 指数部 (strtod / from_chars と同様に 1e3 形式を処理する)
+  if (ptr < last && (*ptr == 'e' || *ptr == 'E')) {
+    auto       p      = ptr + 1;
+    auto       neg    = false;
+    if (p < last && (*p == '+' || *p == '-')) {
+      neg = (*p == '-');
+      ++p;
+    }
+    auto       exp    = 0;
+    auto const estart = p;
+    while (p < last && isDigit(*p)) {
+      exp = exp * 10 + (*p - '0');
+      ++p;
+    }
+    if (p != estart) {
+      for (auto i = 0; i < exp; ++i) {
+        val = neg ? (val / 10.0) : (val * 10.0);
+      }
+      ptr = p;
+    }
+  }
+  value = val;
+  return ptr;
+}
+
+// 整数列の抽出用。オーバーフロー時は値を格納せず nullptr を返す (from_chars の
+// result_out_of_range 相当)
+[[nodiscard]]
+inline auto parseUint64(const char* ptr, const char* const last, std::uint64_t& value) noexcept -> const char* {
+  auto const start  = ptr;
+  auto       val    = std::uint64_t{0};
+  auto       oom    = false;
+  while (ptr < last && isDigit(*ptr)) {
+    auto const d = static_cast<std::uint64_t>(*ptr - '0');
+    if (val > (UINT64_MAX - d) / 10U) {
+      oom = true;
+    } else {
+      val = val * 10U + d;
+    }
+    ++ptr;
+  }
+  if (ptr == start || oom) {
+    return nullptr;
+  }
+  value = val;
+  return ptr;
+}
+
+// ponytail: 非負かつ 2^53 未満の値を想定した ceil (total * threshold の計算用)。
+// 負の値や巨大値は想定外 (threshold は 0.0～1.0 を前提)。
+[[nodiscard]]
+constexpr auto ceilToSize(double const x) noexcept -> std::size_t {
+  auto const t = static_cast<std::uint64_t>(x);
+  return static_cast<std::size_t>(t + ((static_cast<double>(t) < x) ? 1U : 0U));
+}
+
+#if !defined(MOJITONPP_FREESTANDING)
 [[nodiscard]]
 inline auto fromChars(const char* first, const char* last, double& value) noexcept -> std::from_chars_result {
 #if defined(__cpp_lib_to_chars) && __cpp_lib_to_chars >= 202306L
@@ -38,6 +135,7 @@ inline auto fromChars(const char* first, const char* last, double& value) noexce
   return {first + (end - buf.data()), std::errc{}};
 #endif
 }
+#endif
 }  // namespace detail
 
 /**
@@ -203,7 +301,7 @@ private:
    */
   [[nodiscard]]
   auto coverageThreshold(std::size_t const total) const noexcept -> std::size_t {
-    return static_cast<std::size_t>(std::ceil(static_cast<double>(total) * options_.threshold));
+    return detail::ceilToSize(static_cast<double>(total) * options_.threshold);
   }
 
   /**
@@ -226,7 +324,7 @@ private:
     auto changed = true;
     while (changed) {
       changed = false;
-      while (!text.empty() && std::isdigit(static_cast<unsigned char>(text.back())) != 0) {
+      while (!text.empty() && detail::isDigit(text.back())) {
         text.remove_suffix(1U);
         changed = true;
       }
@@ -323,7 +421,7 @@ private:
     }
 
     auto suffix = input.substr(base_name.size());
-    if (suffix.empty() || (std::isdigit(static_cast<unsigned char>(suffix.front())) == 0)) {
+    if (suffix.empty() || !detail::isDigit(suffix.front())) {
       return std::nullopt;
     }
 
@@ -332,16 +430,35 @@ private:
     auto end     = suffix.data() + suffix.size();
 
     while (ptr < end) {
-      if (std::isdigit(static_cast<unsigned char>(*ptr)) != 0 || (treat_dot_as_decimal && *ptr == '.')) {
+      if (detail::isDigit(*ptr) || (treat_dot_as_decimal && *ptr == '.')) {
+#if defined(MOJITONPP_FREESTANDING)
+        auto val = 0.0;
+        if (auto const parsed = detail::parseDecimal(ptr, end, val); parsed != nullptr) {
+          indices.push_back(val);
+          ptr = parsed;
+        } else if (detail::isDigit(*ptr)) {
+          // 整数としてのフォールバック
+          auto const start_ptr = ptr;
+          while (ptr < end && detail::isDigit(*ptr)) {
+            ++ptr;
+          }
+          auto val_int = std::uint64_t{};
+          if (detail::parseUint64(start_ptr, ptr, val_int) != nullptr) {
+            indices.push_back(static_cast<double>(val_int));
+          }
+        } else {
+          ++ptr;
+        }
+#else
         auto  val      = 0.0;
         auto const res = detail::fromChars(ptr, end, val);
         if (res.ec == std::errc{}) {
           indices.push_back(val);
           ptr = res.ptr;
-        } else if (std::isdigit(static_cast<unsigned char>(*ptr)) != 0) {
+        } else if (detail::isDigit(*ptr)) {
           // 整数としてのフォールバック
           auto const start_ptr = ptr;
-          while (ptr < end && std::isdigit(static_cast<unsigned char>(*ptr)) != 0) {
+          while (ptr < end && detail::isDigit(*ptr)) {
             ++ptr;
           }
           auto       val_int = std::uint64_t{};
@@ -352,6 +469,7 @@ private:
         } else {
           ++ptr;
         }
+#endif
       } else {
         ++ptr;
       }
