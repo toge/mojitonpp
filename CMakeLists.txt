@@ -3,7 +3,16 @@ project(mojitonpp LANGUAGES CXX)
 
 option(BUILD_TEST "Build tests" ON)
 option(BUILD_TOOL "Build tool" ON)
-option(ENABLE_FREESTANDING "Build wasm32-unknown-unknown freestanding guest (for wasm3 embedding)" OFF)
+option(ENABLE_WASI_MINIMAL "Enable WASI minimal (no exceptions) mode - wasi-sdk wasm32-wasip1 assumed" OFF)
+
+if(ENABLE_WASI_MINIMAL)
+    add_compile_definitions(MOJITONPP_WASI_MINIMAL=1)
+endif()
+
+# wasip1 では glaze を含む hosted ツールはビルドしない（frozenchars と同様に分岐）
+if(ENABLE_WASI_MINIMAL AND CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    set(BUILD_TOOL OFF CACHE BOOL "Disable tool for WASI minimal" FORCE)
+endif()
 
 ## add warning
 if (CMAKE_COMPILER_IS_GNUCXX)
@@ -78,62 +87,16 @@ if(BUILD_TEST)
     add_subdirectory(test)
 endif()
 
-if(ENABLE_FREESTANDING)
-    # wasm32-unknown-unknown (freestanding, -nostdlib) でゲストモジュールをビルドする。
-    # clang は emsdk 同梱のものを優先して検索し、libc++ ヘッダは emsdk の sysroot を使う。
-    find_program(MOJITONPP_WASM_CLANG
-        NAMES clang++
-        HINTS "$ENV{EMSDK}/upstream/bin"
-        REQUIRED
+# wasip1 ゲスト (wasi-sdk) は WASI ツールチェインでのみビルド。
+# frozenchars と同一手順: `cmake -DCMAKE_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake -DENABLE_WASI_MINIMAL=ON`
+if(ENABLE_WASI_MINIMAL AND CMAKE_SYSTEM_NAME STREQUAL "WASI")
+    add_executable(mojitonpp_guest wasm/guest.cpp)
+    target_link_libraries(mojitonpp_guest PRIVATE mojitonpp)
+    target_compile_features(mojitonpp_guest PRIVATE cxx_std_20)
+    target_compile_options(mojitonpp_guest PRIVATE -fno-exceptions -fno-rtti)
+    # ponytail: WASI libc を使うため -nostdlib 不要。wasi-sdk の通常リンクで wasip1 モジュールを生成。
+    set_target_properties(mojitonpp_guest PROPERTIES
+        SUFFIX ".wasm"
+        LINK_FLAGS "-Wl,--no-entry -Wl,--export=mojiton_detect -Wl,--export=mojiton_scratch -Wl,--export-memory"
     )
-    set(MOJITONPP_WASM_SYSROOT "$ENV{EMSDK}/upstream/emscripten/cache/sysroot"
-        CACHE PATH "wasm32 freestanding ビルド用 sysroot (libc++ ヘッダを含むこと)")
-    if(NOT EXISTS "${MOJITONPP_WASM_SYSROOT}/include/c++/v1/string")
-        message(FATAL_ERROR
-            "libc++ headers not found in MOJITONPP_WASM_SYSROOT: ${MOJITONPP_WASM_SYSROOT}\n"
-            "emsdk の install/activate を実行して sysroot を作成するか、-DMOJITONPP_WASM_SYSROOT=<path> で指定してください")
-    endif()
-
-    set(FREESTANDING_CXXFLAGS
-        --target=wasm32-unknown-unknown
-        -std=c++20
-        -Os
-        -fno-exceptions
-        -fno-rtti
-        -nostdlib
-        -DMOJITONPP_FREESTANDING
-        "-I${CMAKE_CURRENT_SOURCE_DIR}"
-        "-isystem${MOJITONPP_WASM_SYSROOT}/include/c++/v1"
-        "-isystem${MOJITONPP_WASM_SYSROOT}/include/wasm32-wasi"
-        "-isystem${MOJITONPP_WASM_SYSROOT}/include"
-    )
-    set(FREESTANDING_OUT ${CMAKE_CURRENT_BINARY_DIR}/mojitonpp_guest.wasm)
-
-    add_custom_command(OUTPUT ${FREESTANDING_OUT}
-        COMMAND ${MOJITONPP_WASM_CLANG} ${FREESTANDING_CXXFLAGS} -c
-            ${CMAKE_CURRENT_SOURCE_DIR}/wasm/guest.cpp
-            -o ${CMAKE_CURRENT_BINARY_DIR}/freestanding_guest.o
-        COMMAND ${MOJITONPP_WASM_CLANG} ${FREESTANDING_CXXFLAGS} -c
-            ${CMAKE_CURRENT_SOURCE_DIR}/wasm/freestanding_support.cpp
-            -o ${CMAKE_CURRENT_BINARY_DIR}/freestanding_support.o
-        COMMAND ${MOJITONPP_WASM_CLANG} ${FREESTANDING_CXXFLAGS}
-            ${CMAKE_CURRENT_BINARY_DIR}/freestanding_guest.o
-            ${CMAKE_CURRENT_BINARY_DIR}/freestanding_support.o
-            -o ${FREESTANDING_OUT}
-            -Wl,--no-entry
-            -Wl,--export=mojiton_detect
-            -Wl,--export=mojiton_scratch
-            -Wl,--export-memory
-        DEPENDS wasm/guest.cpp wasm/freestanding_support.cpp mojitonpp.hpp
-        VERBATIM
-    )
-    add_custom_target(freestanding_guest ALL DEPENDS ${FREESTANDING_OUT})
-
-    # スモークテスト: node が使える環境でゲストモジュールの動作を検証する
-    find_program(MOJITONPP_NODE node)
-    if(MOJITONPP_NODE)
-        add_test(NAME freestanding_smoke
-            COMMAND ${MOJITONPP_NODE} ${CMAKE_CURRENT_SOURCE_DIR}/wasm/run_guest.mjs ${FREESTANDING_OUT}
-        )
-    endif()
 endif()

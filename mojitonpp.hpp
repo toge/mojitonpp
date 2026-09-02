@@ -1,13 +1,42 @@
 #ifndef MOJITONPP_HPP__
 #define MOJITONPP_HPP__
 
-// フリースタンディングモード (wasm32-unknown-unknown + -nostdlib 等) では
-// libc の関数 (isdigit / ceil / strtod / from_chars) を一切使用しない。
-// ホスト環境との挙動を一致させるため、常時ロケール非依存の自前実装を用いる。
+/**
+ * @brief ビルドモード設定。
+ *
+ * MOJITONPP_WASI_MINIMAL が定義されると、ライブラリ内の例外送出
+ * (MOJITONPP_THROW) が std::abort() に置き換わり、-fno-exceptions でも
+ * ビルドできる「例外なしモード」になる。wasm32-wasip1 / wasm32-emscripten は
+ * WASI/hosted とみなすため自動では有効にならず、WASI 上で最小構成を
+ * 検証する場合は手動で `-DMOJITONPP_WASI_MINIMAL` を指定する。
+ * 本ライブラリの WASI 対応は wasi-sdk sysroot を用いた wasm32-wasip1 での
+ * ビルドを想定（wasm3 等で実行可能）。`<iostream>` は wasip1/wasip2 では
+ * WASI 経由で利用可能なため無効化しない。
+ * frozenchars (wasip1 基準) と同一ポリシー。
+ */
+#if !defined(MOJITONPP_WASI_MINIMAL) && defined(__wasm__) && !defined(__wasi__) && !defined(__EMSCRIPTEN__)
+#  define MOJITONPP_WASI_MINIMAL 1
+#endif
+
+#ifndef MOJITONPP_WASI_MINIMAL
+#  include <stdexcept>
+#  define MOJITONPP_THROW(expr) throw expr
+#else
+#  include <cstdlib>
+namespace mojitonpp::detail {
+[[noreturn]] inline void fail() noexcept { std::abort(); }
+} // namespace mojitonpp::detail
+#  define MOJITONPP_THROW(expr) ::mojitonpp::detail::fail()
+#endif
+
+// wasip1 でも stdlib を使う。数値パースは WASI_MINIMAL 時に自前実装へ切り替えるだけで、
+// ヘッダ自体は常時インクルードして機能を落とさない（frozenchars と同一方針）。
 #include <algorithm>
 #include <array>
+#include <charconv>
 #include <concepts>
 #include <cstdint>
+#include <cstdlib>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -15,10 +44,6 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
-#if !defined(MOJITONPP_FREESTANDING)
-#include <charconv>
-#include <cstdlib>
-#endif
 
 namespace mojitonpp {
 namespace detail {
@@ -115,7 +140,7 @@ constexpr auto ceilToSize(double const x) noexcept -> std::size_t {
   return static_cast<std::size_t>(t + ((static_cast<double>(t) < x) ? 1U : 0U));
 }
 
-#if !defined(MOJITONPP_FREESTANDING)
+#if !defined(MOJITONPP_WASI_MINIMAL)
 [[nodiscard]]
 inline auto fromChars(const char* first, const char* last, double& value) noexcept -> std::from_chars_result {
 #if defined(__cpp_lib_to_chars) && __cpp_lib_to_chars >= 202306L
@@ -431,7 +456,7 @@ private:
 
     while (ptr < end) {
       if (detail::isDigit(*ptr) || (treat_dot_as_decimal && *ptr == '.')) {
-#if defined(MOJITONPP_FREESTANDING)
+#if defined(MOJITONPP_WASI_MINIMAL)
         auto val = 0.0;
         if (auto const parsed = detail::parseDecimal(ptr, end, val); parsed != nullptr) {
           indices.push_back(val);

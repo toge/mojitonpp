@@ -5,7 +5,6 @@
 ## 特徴
 
 - **純粋な文字列処理**: ライブラリ自体はファイルシステムに依存せず、与えられた文字列集合に対して動作します
-- [marisa-trie](https://github.com/s-yata/marisa-trie)による高速な接頭辞一致検索
 - 辞書順に並べた文字列集合の **最小 / 最大** から共通接頭辞を求め、ウィンドウごとに候補を生成
 - 接頭辞一致件数を **二分探索** で検証し、ノイズに強い最大長ベース名を特定
 - ベース名直後の数値列を抽出し、**数値順（自然順）** にソート可能
@@ -79,38 +78,37 @@ Catch2で以下を検証しています。
 - `frame1`, `frame2`, `frame10` を数値順に並べること
 - 90% 未満の系列は失敗扱いになること
 
-## FREESTANDING モード (wasm32-unknown-unknown)
+## WASI Minimal モード (wasm32-wasip1)
 
-`-DMOJITONPP_FREESTANDING` を定義してコンパイルすると、libc の関数 (`isdigit` / `ceil` / `strtod` / `from_chars`) を一切使わないフリースタンディングモードになります。`wasm32-unknown-unknown` + `-nostdlib` + `-fno-exceptions` でビルドでき、wasm3 等に組み込んだ WebAssembly ゲストとして動作します。
+`-DMOJITONPP_WASI_MINIMAL` を定義するとライブラリ内の例外送出 (`MOJITONPP_THROW`) が `std::abort()` に置換され `-fno-exceptions` でもビルドできる「例外なしモード」になります。
+`wasm32-wasip1` / `wasm32-emscripten` は `__wasi__` / `__EMSCRIPTEN__` が定義されるため、MOJITONPP_WASI_MINIMALは自動では有効になりません。
+WASI 上で最小構成を検証する場合に手動で指定してください。
 
-ゲストモジュールのビルド (clang は emsdk 同梱のもの、libc++ ヘッダは emsdk の sysroot を使用):
+本ライブラリの WASI 対応は wasi-sdk sysroot を用いた `wasm32-wasip1` でのビルドを想定（wasm3, wasmer 等で実行可能）しています。
 
 ```bash
-cmake -S . -B build_freestanding -DENABLE_FREESTANDING=ON [必要に応じて -DCMAKE_TOOLCHAIN_FILE=...]
-cmake --build build_freestanding --target freestanding_guest
-# -> build_freestanding/mojitonpp_guest.wasm (imports: なし)
+# wasi-sdk が /opt/wasi-sdk にある場合
+cmake -B build -S . -G Ninja \
+  -DCMAKE_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake \
+  -DENABLE_WASI_MINIMAL=ON -DBUILD_TOOL=OFF
+cmake --build build
+# -> build/mojitonpp_guest.wasm / build/test/smoke_wasi_minimal (WebAssembly)
 ```
 
-生成されるモジュールは `mojiton_detect` / `mojiton_scratch` / `memory` のみをエクスポートし、インポートはありません。ゲストのAPI:
+以下のコマンドでwasm32-wasip1 環境ではなくても例外なし契約を検証することは可能です。
 
-| エクスポート | シグネチャ | 説明 |
-|---|---|---|
-| `mojiton_scratch` | `(len: i32) -> i32` | 入力バッファを確保 (バンプアロケータ) |
-| `mojiton_detect` | `(ptr: i32, len: i32) -> i32` | `'\n'` 区切り文字列群を検出し、NUL 終端の結果文字列 (`base|item|item...` 1系統1行) のポインタを返す |
-
-wasm3 ホスト側の呼び出し手順 (C API):
-
-```c
-M3Result r;
-m3_FindFunction(&detect, mod, "mojiton_detect");
-m3_FindFunction(&scratch, mod, "mojiton_scratch");
-uint32_t buf = scratch(len);            // 1. バッファ確保
-memcpy(m3_GetMemory(runtime, &r, 0) + buf, input, len);  // 2. 入力書き込み
-uint32_t out = detect(buf, len);        // 3. 検出実行
-// 4. m3_GetMemory から out を起点に NUL まで読んで結果文字列を取得
+```bash
+g++ -std=c++23 -I . -DMOJITONPP_WASI_MINIMAL=1 -fno-exceptions -c test/smoke_wasi_minimal.cpp -o /tmp/smoke.o
 ```
 
-`wasm/run_guest.mjs` が同じ手順を Node.js で実装したスモークテスト (`ctest` の `freestanding_smoke`) です。詳細は `wasm/guest.cpp`・`wasm/freestanding_support.cpp` を参照してください。
+ゲストモジュールのAPI (`wasm/guest.cpp`):
+
+| エクスポート      | シグネチャ                    | 説明                                                                                                |
+| ----------------- | ----------------------------- | --------------------------------------------------------------------------------------------------- |
+| `mojiton_scratch` | `(len: i32) -> i32`           | 入力バッファを確保                                                                                  |
+| `mojiton_detect`  | `(ptr: i32, len: i32) -> i32` | `'\n'` 区切り文字列群を検出し、NUL 終端の結果文字列 (`base|item|item...` 1系統1行) のポインタを返す |
+
+`wasm32-wasip2` 環境については未検証です。wasi-sdk がwasm32-wasip2 を正式サポートした際に検証予定です。
 
 ## ライセンス
 
