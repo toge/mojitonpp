@@ -89,8 +89,8 @@ auto parseArgs(std::span<char* const> const args) -> std::optional<cli_options> 
         return std::nullopt;
       }
       auto const threshold_arg = std::string_view{args[++index]};
-      auto [ptr, ec] = mojitonpp::detail::fromChars(threshold_arg.data(), threshold_arg.data() + threshold_arg.size(), options.threshold);
-      if (ec != std::errc{}) {
+      auto const res = mojitonpp::detail::fromChars(threshold_arg.data(), threshold_arg.data() + threshold_arg.size(), options.threshold);
+      if (!res) {
         std::cerr << "--threshold には数値を指定してください。\n";
         return std::nullopt;
       }

@@ -4,44 +4,56 @@
 /**
  * @brief ビルドモード設定。
  *
- * MOJITONPP_WASI_MINIMAL が定義されると、ライブラリ内の例外送出
- * (MOJITONPP_THROW) が std::abort() に置き換わり、-fno-exceptions でも
- * ビルドできる「例外なしモード」になる。wasm32-wasip1 / wasm32-emscripten は
- * WASI/hosted とみなすため自動では有効にならず、WASI 上で最小構成を
- * 検証する場合は手動で `-DMOJITONPP_WASI_MINIMAL` を指定する。
+ * frozenchars と同一ポリシー: 既定で例外なし。実行時APIの失敗は
+ * `std::expected<T, std::errc>` で返るため、`-fno-exceptions` でビルドできる。
+ * コンパイル時評価での不正入力は従来どおりコンパイルエラーになる。
  * 本ライブラリの WASI 対応は wasi-sdk sysroot を用いた wasm32-wasip1 での
- * ビルドを想定（wasm3 等で実行可能）。`<iostream>` は wasip1/wasip2 では
- * WASI 経由で利用可能なため無効化しない。
- * frozenchars (wasip1 基準) と同一ポリシー。
+ * ビルドを想定（wasm3 等で実行可能）。
+ *
+ * 歴史的経緯: MOJITONPP_WASI_MINIMAL は削除された。frozenchars と同様に
+ * 例外を既定で使わないため、追加のフラグ不要。
  */
-#if !defined(MOJITONPP_WASI_MINIMAL) && defined(__wasm__) && !defined(__wasi__) && !defined(__EMSCRIPTEN__)
-#  define MOJITONPP_WASI_MINIMAL 1
+#ifdef MOJITONPP_WASI_MINIMAL
+#error "MOJITONPP_WASI_MINIMAL was removed: mojitonpp is now exception-free by default. See README."
 #endif
 
-#ifndef MOJITONPP_WASI_MINIMAL
-#  include <stdexcept>
-#  define MOJITONPP_THROW(expr) throw expr
-#else
-#  include <cstdlib>
+#include <cstdlib>
+
+/**
+ * @brief consteval経路の失敗通知。
+ *
+ * 例外ありでは `throw msg`（不正入力はコンパイルエラーになり診断メッセージが残る）。
+ * `-fno-exceptions`（`__cpp_exceptions` 未定義）では非constexprな [[noreturn]]
+ * 関数の呼び出しになり、定数評価に触れるとコンパイルエラー、実行時に触れると
+ * std::abort() する。frozenchars と同一パターン。
+ */
 namespace mojitonpp::detail {
-[[noreturn]] inline void fail() noexcept { std::abort(); }
+[[noreturn]] inline void consteval_fail(char const* msg) noexcept {
+  (void)msg;
+  std::abort();
+}
 } // namespace mojitonpp::detail
-#  define MOJITONPP_THROW(expr) ::mojitonpp::detail::fail()
+
+#ifdef __cpp_exceptions
+#define MOJITONPP_CONSTEVAL_FAIL(msg) throw(msg)
+#else
+#define MOJITONPP_CONSTEVAL_FAIL(msg) ::mojitonpp::detail::consteval_fail(msg)
 #endif
 
-// wasip1 でも stdlib を使う。数値パースは WASI_MINIMAL 時に自前実装へ切り替えるだけで、
-// ヘッダ自体は常時インクルードして機能を落とさない（frozenchars と同一方針）。
+// wasip1 でも stdlib を使う。frozenchars と同一方針。
 #include <algorithm>
 #include <array>
 #include <charconv>
 #include <concepts>
 #include <cstdint>
 #include <cstdlib>
+#include <expected>
 #include <optional>
 #include <ranges>
 #include <span>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <vector>
 
@@ -140,11 +152,21 @@ constexpr auto ceilToSize(double const x) noexcept -> std::size_t {
   return static_cast<std::size_t>(t + ((static_cast<double>(t) < x) ? 1U : 0U));
 }
 
-#if !defined(MOJITONPP_WASI_MINIMAL)
+/**
+ * @brief 文字列範囲を double としてパースする
+ * @param first 範囲の先頭
+ * @param last 範囲の終端
+ * @param value パース結果の出力先
+ * @return パース成功時は末尾のポインタ、失敗時は std::errc を保持する expected
+ */
 [[nodiscard]]
-inline auto fromChars(const char* first, const char* last, double& value) noexcept -> std::from_chars_result {
+inline auto fromChars(const char* first, const char* last, double& value) noexcept -> std::expected<const char*, std::errc> {
 #if defined(__cpp_lib_to_chars) && __cpp_lib_to_chars >= 202306L
-  return std::from_chars(first, last, value);
+  auto const [ptr, ec] = std::from_chars(first, last, value);
+  if (ec != std::errc{}) {
+    return std::unexpected(ec);
+  }
+  return ptr;
 #else
   auto       buf    = std::array<char, 64>{};
   auto const len    = static_cast<std::size_t>(last - first);
@@ -154,13 +176,12 @@ inline auto fromChars(const char* first, const char* last, double& value) noexce
   char* end{};
   auto const val = std::strtod(buf.data(), &end);
   if (end == buf.data()) {
-    return {first, std::errc::invalid_argument};
+    return std::unexpected(std::errc::invalid_argument);
   }
   value = val;
-  return {first + (end - buf.data()), std::errc{}};
+  return first + (end - buf.data());
 #endif
 }
-#endif
 }  // namespace detail
 
 /**
@@ -437,17 +458,17 @@ private:
    * @param input 対象文字列
    * @param base_name ベース名
    * @param treat_dot_as_decimal 小数点として扱うかどうか
-   * @return インデックス列を抽出できた場合はその値、できない場合は `std::nullopt`
+   * @return インデックス列を抽出できた場合はその値、できない場合は std::errc::invalid_argument
    */
   [[nodiscard]]
-  static auto extractIndices(std::string_view const input, std::string_view const base_name, bool const treat_dot_as_decimal) -> std::optional<std::vector<double>> {
+  static auto extractIndices(std::string_view const input, std::string_view const base_name, bool const treat_dot_as_decimal) -> std::expected<std::vector<double>, std::errc> {
     if (!input.starts_with(base_name)) {
-      return std::nullopt;
+      return std::unexpected(std::errc::invalid_argument);
     }
 
     auto suffix = input.substr(base_name.size());
     if (suffix.empty() || !detail::isDigit(suffix.front())) {
-      return std::nullopt;
+      return std::unexpected(std::errc::invalid_argument);
     }
 
     auto indices = std::vector<double>{};
@@ -456,30 +477,11 @@ private:
 
     while (ptr < end) {
       if (detail::isDigit(*ptr) || (treat_dot_as_decimal && *ptr == '.')) {
-#if defined(MOJITONPP_WASI_MINIMAL)
-        auto val = 0.0;
-        if (auto const parsed = detail::parseDecimal(ptr, end, val); parsed != nullptr) {
-          indices.push_back(val);
-          ptr = parsed;
-        } else if (detail::isDigit(*ptr)) {
-          // 整数としてのフォールバック
-          auto const start_ptr = ptr;
-          while (ptr < end && detail::isDigit(*ptr)) {
-            ++ptr;
-          }
-          auto val_int = std::uint64_t{};
-          if (detail::parseUint64(start_ptr, ptr, val_int) != nullptr) {
-            indices.push_back(static_cast<double>(val_int));
-          }
-        } else {
-          ++ptr;
-        }
-#else
         auto  val      = 0.0;
         auto const res = detail::fromChars(ptr, end, val);
-        if (res.ec == std::errc{}) {
+        if (res) {
           indices.push_back(val);
-          ptr = res.ptr;
+          ptr = *res;
         } else if (detail::isDigit(*ptr)) {
           // 整数としてのフォールバック
           auto const start_ptr = ptr;
@@ -494,14 +496,13 @@ private:
         } else {
           ++ptr;
         }
-#endif
       } else {
         ++ptr;
       }
     }
 
     if (indices.empty()) {
-      return std::nullopt;
+      return std::unexpected(std::errc::invalid_argument);
     }
 
     return indices;

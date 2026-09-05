@@ -186,7 +186,7 @@ jobs:
       - name: Test
         run: ctest --test-dir build -V
 
-  linux-wasi-minimal:
+  linux-wasip1:
     runs-on: ubuntu-latest
     container: fedora:44
 
@@ -212,6 +212,11 @@ jobs:
           fi
           /opt/wasi-sdk/bin/clang --version
           /opt/wasi-sdk/bin/clang++ --version
+
+      - name: Install wasmedge
+        run: |
+          curl -sSf --max-time 300 https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install_v2.sh | bash -s -- --version=0.17.1
+          echo "$HOME/.wasmedge/bin" >> $GITHUB_PATH
 
       - name: Restore vcpkg cache
         uses: actions/cache@v4
@@ -242,6 +247,10 @@ jobs:
           file build/test/smoke_wasi_minimal | grep -q WebAssembly
           file build/mojitonpp_guest.wasm | grep -q WebAssembly
 
+      - name: Run smoke test with wasmedge
+        run: |
+          wasmedge build/test/smoke_wasi_minimal
+
       - name: Verify single headers compile (hosted & WASI minimal wasm)
         run: |
           /opt/wasi-sdk/bin/clang++ -std=c++23 -I . -DMOJITONPP_WASI_MINIMAL=1 -c -x c++ - -o /tmp/mojitonpp_wasm.o <<'EOF'
@@ -256,3 +265,68 @@ jobs:
           file /tmp/mojitonpp_hosted.o | grep -q ELF
           # ホストでの WASI minimal 互換も維持
           g++ -std=c++23 -I . -DMOJITONPP_WASI_MINIMAL=1 -fno-exceptions -c test/smoke_wasi_minimal.cpp -o /tmp/smoke_wasi.o
+
+  linux-wasip2:
+    runs-on: ubuntu-latest
+    container: fedora:44
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: dnf install -y cmake ninja-build git curl zip unzip tar python3 gcc-c++ file
+
+      - name: Cache wasi-sdk
+        uses: actions/cache@v4
+        with:
+          path: /opt/wasi-sdk
+          key: wasi-sdk-34.0
+
+      - name: Install wasi-sdk
+        run: |
+          if [ ! -d /opt/wasi-sdk/bin/clang ]; then
+            curl -L https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz \
+              -o /tmp/wasi-sdk.tar.gz
+            mkdir -p /opt/wasi-sdk
+            tar -xzf /tmp/wasi-sdk.tar.gz -C /opt/wasi-sdk --strip-components=1
+          fi
+          /opt/wasi-sdk/bin/clang --version
+          /opt/wasi-sdk/bin/clang++ --version
+
+      - name: Install wasmedge
+        run: |
+          curl -sSf --max-time 300 https://raw.githubusercontent.com/WasmEdge/WasmEdge/master/utils/install_v2.sh | bash -s -- --version=0.17.1
+          echo "$HOME/.wasmedge/bin" >> $GITHUB_PATH
+
+      - name: Restore vcpkg cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/vcpkg
+            build/vcpkg_installed
+          key: ${{ runner.os }}-wasi-p2-vcpkg-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            ${{ runner.os }}-wasi-p2-vcpkg-
+
+      - name: Install vcpkg
+        run: |
+          if [ ! -d ~/vcpkg ]; then
+            git clone https://github.com/microsoft/vcpkg.git ~/vcpkg
+            ~/vcpkg/bootstrap-vcpkg.sh
+          fi
+
+      - name: Build WASI minimal with vcpkg + wasi-sdk (wasm32-wasip2)
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            -DVCPKG_TARGET_TRIPLET=wasm32-wasip2 \
+            -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
+            -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p2.cmake \
+            -DENABLE_WASI_MINIMAL=ON
+          cmake --build build
+          file build/test/smoke_wasi_minimal | grep -q WebAssembly
+          file build/mojitonpp_guest.wasm | grep -q WebAssembly
+
+      - name: Run smoke test with wasmedge
+        run: |
+          wasmedge build/test/smoke_wasi_minimal

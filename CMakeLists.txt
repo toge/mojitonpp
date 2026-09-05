@@ -3,16 +3,6 @@ project(mojitonpp LANGUAGES CXX)
 
 option(BUILD_TEST "Build tests" ON)
 option(BUILD_TOOL "Build tool" ON)
-option(ENABLE_WASI_MINIMAL "Enable WASI minimal (no exceptions) mode - wasi-sdk wasm32-wasip1 assumed" OFF)
-
-if(ENABLE_WASI_MINIMAL)
-    add_compile_definitions(MOJITONPP_WASI_MINIMAL=1)
-endif()
-
-# wasip1 では glaze を含む hosted ツールはビルドしない（frozenchars と同様に分岐）
-if(ENABLE_WASI_MINIMAL AND CMAKE_SYSTEM_NAME STREQUAL "WASI")
-    set(BUILD_TOOL OFF CACHE BOOL "Disable tool for WASI minimal" FORCE)
-endif()
 
 ## add warning
 if (CMAKE_COMPILER_IS_GNUCXX)
@@ -52,7 +42,7 @@ target_include_directories(mojitonpp INTERFACE
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-target_compile_features(mojitonpp INTERFACE cxx_std_20)
+target_compile_features(mojitonpp INTERFACE cxx_std_23)
 
 if(BUILD_TOOL)
     add_executable(sequence_detector main.cpp)
@@ -88,11 +78,11 @@ if(BUILD_TEST)
 endif()
 
 # wasip1 ゲスト (wasi-sdk) は WASI ツールチェインでのみビルド。
-# frozenchars と同一手順: `cmake -DCMAKE_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake -DENABLE_WASI_MINIMAL=ON`
-if(ENABLE_WASI_MINIMAL AND CMAKE_SYSTEM_NAME STREQUAL "WASI")
+# frozenchars と同一手順: `cmake -DCMAKE_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake`
+if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
     add_executable(mojitonpp_guest wasm/guest.cpp)
     target_link_libraries(mojitonpp_guest PRIVATE mojitonpp)
-    target_compile_features(mojitonpp_guest PRIVATE cxx_std_20)
+    target_compile_features(mojitonpp_guest PRIVATE cxx_std_23)
     target_compile_options(mojitonpp_guest PRIVATE -fno-exceptions -fno-rtti)
     # ponytail: WASI libc を使うため -nostdlib 不要。wasi-sdk の通常リンクで wasip1 モジュールを生成。
     set_target_properties(mojitonpp_guest PROPERTIES
