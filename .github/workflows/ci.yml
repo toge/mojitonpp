@@ -243,8 +243,7 @@ jobs:
             -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
             -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake \
             -DENABLE_WASI_MINIMAL=ON -DBUILD_TOOL=OFF
-          cmake --build build --verbose 2>&1 || (cat build/CMakeFiles/CMakeOutput.log 2>/dev/null; cat build/CMakeFiles/CMakeError.log 2>/dev/null; exit 1)
-          file build/test/smoke_wasi_minimal | grep -q WebAssembly
+          cmake --build build
           file build/mojitonpp_guest.wasm | grep -q WebAssembly
 
       - name: Run smoke test with wasmedge
@@ -323,8 +322,7 @@ jobs:
             -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
             -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p2.cmake \
             -DENABLE_WASI_MINIMAL=ON -DBUILD_TOOL=OFF
-          cmake --build build --verbose 2>&1 || (cat build/CMakeFiles/CMakeOutput.log 2>/dev/null; cat build/CMakeFiles/CMakeError.log 2>/dev/null; exit 1)
-          file build/test/smoke_wasi_minimal | grep -q WebAssembly
+          cmake --build build
           file build/mojitonpp_guest.wasm | grep -q WebAssembly
 
       - name: Run smoke test with wasmedge
