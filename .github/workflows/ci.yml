@@ -242,7 +242,7 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=wasm32-wasip1 \
             -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
             -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake \
-            -DENABLE_WASI_MINIMAL=ON
+            -DENABLE_WASI_MINIMAL=ON -DBUILD_TOOL=OFF
           cmake --build build
           file build/test/smoke_wasi_minimal | grep -q WebAssembly
           file build/mojitonpp_guest.wasm | grep -q WebAssembly
@@ -322,7 +322,7 @@ jobs:
             -DVCPKG_TARGET_TRIPLET=wasm32-wasip2 \
             -DVCPKG_OVERLAY_TRIPLETS=$PWD/triplets \
             -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p2.cmake \
-            -DENABLE_WASI_MINIMAL=ON
+            -DENABLE_WASI_MINIMAL=ON -DBUILD_TOOL=OFF
           cmake --build build
           file build/test/smoke_wasi_minimal | grep -q WebAssembly
           file build/mojitonpp_guest.wasm | grep -q WebAssembly
