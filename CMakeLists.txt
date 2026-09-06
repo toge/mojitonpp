@@ -89,4 +89,6 @@ if(CMAKE_SYSTEM_NAME STREQUAL "WASI")
         SUFFIX ".wasm"
         LINK_FLAGS "-Wl,--no-entry -Wl,--export=mojiton_detect -Wl,--export=mojiton_scratch -Wl,--export-memory"
     )
+    # デバッグ用: 詳細なリンク出力
+    target_link_options(mojitonpp_guest PRIVATE -Wl,--verbose)
 endif()
