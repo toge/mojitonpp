@@ -246,20 +246,20 @@ jobs:
           cmake --build build
           file build/mojitonpp_guest.wasm | grep -q WebAssembly
 
-      - name: Verify single headers compile (hosted & WASI minimal wasm)
+      - name: Verify single headers compile (hosted & WASI wasm)
         run: |
-          /opt/wasi-sdk/bin/clang++ -std=c++23 -I . -DMOJITONPP_WASI_MINIMAL=1 -c -x c++ - -o /tmp/mojitonpp_wasm.o <<'EOF'
+          /opt/wasi-sdk/bin/clang++ -std=c++23 -I . -fno-exceptions -fno-rtti -c -x c++ - -o /tmp/mojitonpp_wasm.o <<'EOF'
           #include "mojitonpp.hpp"
           int main(){return 0;}
           EOF
           file /tmp/mojitonpp_wasm.o | grep -q WebAssembly
-          g++ -std=c++23 -I . -DMOJITONPP_WASI_MINIMAL=1 -c -x c++ - -o /tmp/mojitonpp_hosted.o <<'EOF'
+          g++ -std=c++23 -I . -c -x c++ - -o /tmp/mojitonpp_hosted.o <<'EOF'
           #include "mojitonpp.hpp"
           int main(){return 0;}
           EOF
           file /tmp/mojitonpp_hosted.o | grep -q ELF
-          # ホストでの WASI minimal 互換も維持
-          g++ -std=c++23 -I . -DMOJITONPP_WASI_MINIMAL=1 -fno-exceptions -c test/smoke_wasi_minimal.cpp -o /tmp/smoke_wasi.o
+          # ホストでの例外なしモード互換も維持
+          g++ -std=c++23 -I . -fno-exceptions -c test/smoke_wasi_minimal.cpp -o /tmp/smoke_wasi.o
 
   linux-wasip2:
     runs-on: ubuntu-latest
